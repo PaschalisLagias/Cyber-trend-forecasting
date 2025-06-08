@@ -20,6 +20,7 @@ import os
 # To add wait time between requests
 import time
 from csv import writer
+from typing import Dict, Tuple
 
 # Place your Twitter API bearer token here!
 os.environ['TOKEN'] = ''
@@ -30,7 +31,7 @@ def create_url(
     start_date: str,
     end_date: str,
     max_results: int = 10
-) -> tuple[str, dict]:
+) -> Tuple[str, dict]:
     """
     Create query data (URL, parameters) for Twitter API.
 
@@ -66,7 +67,7 @@ def auth() -> str:
     return os.getenv('TOKEN')
 
 
-def create_headers(token: str) -> dict[str, str]:
+def create_headers(token: str) -> Dict[str, str]:
     """
     Create dictionary with API bearer token for Twitter API access.
 
@@ -79,7 +80,7 @@ def create_headers(token: str) -> dict[str, str]:
 
 def connect_to_endpoint(
     url: str,
-    headers: dict[str, str],
+    headers: Dict[str, str],
     params: dict,
     next_token: str = None
 ) -> dict:
