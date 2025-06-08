@@ -1,3 +1,4 @@
+from itertools import product
 import time
 import pandas as pd
 from pytrends.request import TrendReq
@@ -11,14 +12,12 @@ countries = [
 keywords = [
     "war",
     "war conflict",
+    "military attack",
     "armed force attack",
     "political conflict"
-
 ]
 
-KEYWORD = "war"
-COUNTRIES = ["US", "GB", "CA", "AU"]
-FILE = "df1.csv"
+FILE = "trends.csv"
 TIME_WINDOW = "2011-07-01 2025-03-31"
 
 
@@ -57,30 +56,31 @@ if __name__ == "__main__":
     trends_requester = TrendReq(hl="en-US", tz=0)
     output_df = pd.DataFrame()
 
-    for code in COUNTRIES:
+    for code, keyword in product(countries, keywords):
         try:
-            print(f"Code: {code}", f"| Keyword: {KEYWORD}")
+            print(f"Code: {code}", f"| Keyword: {keyword}")
             trends_requester.build_payload(
-                kw_list=[KEYWORD],
+                kw_list=[keyword],
                 timeframe=TIME_WINDOW,
                 geo=code
             )
+
+            # Get result as dataframe (datetime index, keyword, isPartial)
             result_df = trends_requester.interest_over_time()
             result_df = rename_df(result_df, code)
 
             # Logic if output dataframe already has data
             if len(output_df) > 0:
                 main_column = result_df.columns[0]
-                output_df[main_column] = result_df[main_column]
+                output_df[main_column] = result_df[main_column].values
 
             # If this is the first query, init output as a df copy
             else:
                 output_df = result_df.copy()
         except Exception as e:
-            print(f"Failure for {KEYWORD} in {code} - {e}")
-        time.sleep(20)
-    print(output_df.shape)
-    print(output_df.columns)
-    print(output_df.index)
-    print(output_df)
+            print(f"Failure for {keyword} in {code} - {e}")
+
+        # Sleep to avoid blocking API access from excessive requests
+        time.sleep(10)
+
     output_df.to_csv(FILE, index=False)
