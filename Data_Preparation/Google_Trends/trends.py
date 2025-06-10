@@ -1,23 +1,32 @@
+"""
+Script for pulling historic data for Google searches of keywords related to
+war conflict and political tension from Google Trends API. The API has an
+unknown rate limit, which is easily reached and blockes requests after a point.
+
+Moreover, no data are returned for North Korea ("KP"). For time windows longer
+than 5 years, data are returned at monthly frequency with the first day of
+each month as a timestamp.
+"""
 from itertools import product
 import time
 import pandas as pd
 from pytrends.request import TrendReq
 
+# 36 countries, no data for KP (North Korea Republic)
 countries = [
-    "US", "GB", "CA", "AU", "UA", "RU", "FR", "DE", "BR", "CN2", "JP", "PK",
+    "US", "GB", "CA", "AU", "UA", "RU", "FR", "DE", "BR", "CN", "JP", "PK",
     "KP", "KR", "IN", "TW", "NL", "ES", "SE", "MX", "IR", "IL", "SA", "SY",
     "FI", "IE", "AT", "NO", "CH", "IT", "MY", "EG", "TR", "PT", "PS", "AE"
 ]
 
-keywords = [
-    "war",
-    "war conflict",
-    "military attack",
-    "armed force attack",
-    "political conflict"
-]
+keywords = ["war"]
 
-FILE = "trends.csv"
+# "war conflict",
+# "military attack",
+# "armed force attack",
+# "political conflict"
+
+FILE = "trends_war.csv"
 TIME_WINDOW = "2011-07-01 2025-03-31"
 
 
@@ -83,4 +92,5 @@ if __name__ == "__main__":
         # Sleep to avoid blocking API access from excessive requests
         time.sleep(10)
 
-    output_df.to_csv(FILE, index=False)
+    output_df.index.name = "Date"
+    output_df.to_csv(FILE, index=True)
