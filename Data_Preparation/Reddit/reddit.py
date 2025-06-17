@@ -112,7 +112,7 @@ if __name__ == "__main__":
     reddit = praw.Reddit(
         client_id="YOUR_CLIENT_ID",
         client_secret="YOUR_CLIENT_SECRET",
-        user_agent="academic_app by u/PaschalisLagias"
+        user_agent="PersonalScript by u/AcademicApp"
     )
 
     for code, country in countries_dict.items():
@@ -153,5 +153,5 @@ if __name__ == "__main__":
         output_df[col_name] = df.values
 
     # Store output to CSV
-    output_df.to_csv("Reddit_War_Conflicts.csv", index=True)
-    print("Saved to Reddit_War_Conflicts.csv")
+    output_df.to_csv("RedditWarConflicts.csv", index=True)
+    print("Saved to RedditWarConflicts.csv")
