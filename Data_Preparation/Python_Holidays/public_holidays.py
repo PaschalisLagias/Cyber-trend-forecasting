@@ -86,7 +86,7 @@ if __name__ == "__main__":
     year_range = range(START_DATE.year, END_DATE.year + 1)
     date_range = tuple(product(year_range, months))
 
-    # Run loop once to build CSV header
+    # Run loop once to build date index (MM/YYYY)
     for year, month in date_range:
         if within_date_range(month, year):
             date_s = month + "/" + str(year)
