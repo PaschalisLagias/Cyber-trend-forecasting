@@ -74,15 +74,18 @@ country_codes = [
     "FI", "IE", "AT", "NO", "CH", "IT", "MY", "EG", "TR", "PT", "PS", "AE"
 ]
 
-all_data = []
 months = [
     "01", "02", "03", "04", "05", "06",
     "07", "08", "09", "10", "11", "12"
 ]
-country_data = ["date"]
-missing = set()
+
+all_data = []  # List to store holiday data for all countries
+missing = set()  # For countries with missing holiday data
 
 if __name__ == "__main__":
+
+    # Init date index list and date range
+    date_index = ["date"]
     year_range = range(START_DATE.year, END_DATE.year + 1)
     date_range = tuple(product(year_range, months))
 
@@ -90,16 +93,15 @@ if __name__ == "__main__":
     for year, month in date_range:
         if within_date_range(month, year):
             date_s = month + "/" + str(year)
-            country_data.append(date_s)
-    all_data.append(country_data)
+            date_index.append(date_s)
+    all_data.append(date_index)
 
     # Collect count of public holidays per month for each country
     for country in country_codes:
         country_data = [country + "_holiday"]  # Column name
 
+        # Collect data if the date is within the required date range
         for year, month in date_range:
-
-            # Don't collect data if date is out of required date range
             if within_date_range(month, year):
                 counter = 0
 
