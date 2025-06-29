@@ -74,12 +74,12 @@ country_codes = [
     "FI", "IE", "AT", "NO", "CH", "IT", "MY", "EG", "TR", "PT", "PS", "AE"
 ]
 
-H = []
+all_data = []
 months = [
     "01", "02", "03", "04", "05", "06",
     "07", "08", "09", "10", "11", "12"
 ]
-h = ["date"]
+country_data = ["date"]
 missing = set()
 
 if __name__ == "__main__":
@@ -90,12 +90,12 @@ if __name__ == "__main__":
     for year, month in date_range:
         if within_date_range(month, year):
             date_s = month + "/" + str(year)
-            h.append(date_s)
-    H.append(h)
+            country_data.append(date_s)
+    all_data.append(country_data)
 
     # Collect count of public holidays per month for each country
     for country in country_codes:
-        h = [country + "_holiday"]  # Column name
+        country_data = [country + "_holiday"]  # Column name
 
         for year, month in date_range:
 
@@ -118,10 +118,10 @@ if __name__ == "__main__":
                     if date(year, int(month), day) in country_holidays:
                         counter += 1
 
-                h.append(counter)
-        H.append(h)
+                country_data.append(counter)
+        all_data.append(country_data)
         print("Added holidays of", country)
 
     with open("PH_v2.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerows(list(map(list, zip(*H))))
+        writer.writerows(list(map(list, zip(*all_data))))
