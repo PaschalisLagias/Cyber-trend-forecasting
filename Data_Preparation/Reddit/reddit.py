@@ -18,24 +18,62 @@ from datetime import datetime
 import time
 
 subreddits_list = [
-    "worldnews",
+    "arab",
+    "arabasian",
+    "asia",
+    "asianpolitics",
+    "asiareport",
+    "askbalkans",
+    "askhistorians",
+    "asklatinamerica",
     "askreddit",
-    "google",
-    "globaltalk",
-    "conspiracy",
-    "inthenews",
+    "ausnews",
+    "australiamedianews",
+    "australianews",
+    "australianpolitics",
     "breakingnews",
-    "news",
-    "geopolitics",
-    "politics",
-    "politicaldiscussion",
-    "worldpolitics",
-    "politicsandwar",
-    "military",
-    "foodforthought",
+    "centralamerica",
+    "channelnewsasia",
     "collapse",
+    "combatfootage",
+    "conspiracy",
+    "credibledefense",
+    "eastasianews",
+    "economy",
+    "economics",
+    "eunews",
+    "euro",
+    "europe",
+    "europeanforum",
+    "europes",
+    "foodforthought",
+    "freeeuropenews",
+    "geopolitics",
+    "globalmarkets",
+    "globalmarketnews",
+    "globaltalk",
+    "google",
+    "history",
+    "immigration",
+    "internationalrelation",
+    "inthenews",
+    "middleeast",
+    "middleeastnews",
+    "military",
     "moderatepolitics",
-    "history"
+    "news",
+    "newsandpolitics",
+    "news_world_conflicts",
+    "newworldorder",
+    "nuclearwar",
+    "politicaldiscussion",
+    "politics",
+    "politicsall",
+    "politicsandwar",
+    "war",
+    "worldnews",
+    "worldpolitics",
+    "worldwar"
 ]
 
 countries_dict = {
@@ -127,8 +165,7 @@ if __name__ == "__main__":
                 f"({country} AND 'Political Conflict') OR " + \
                 f"({country} AND 'Armed Force Attack')"
 
-        print(col_name)
-        print(query)
+        print(f"Searching posts for {country}...")
 
         for sub_reddit in subreddits_list:
             try:
@@ -153,5 +190,5 @@ if __name__ == "__main__":
         output_df[col_name] = df.values
 
     # Store output to CSV
-    output_df.to_csv("RedditWarConflicts.csv", index=True)
-    print("Saved to RedditWarConflicts.csv")
+    output_df.to_csv("RedditWarConflicts_V2.csv", index=True)
+    print("Saved to RedditWarConflicts_V2.csv")
