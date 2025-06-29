@@ -10,8 +10,12 @@ https://holidays.readthedocs.io/en/latest/
 @author: Zaid Almahmoud
 """
 from datetime import date
+from itertools import product
 import holidays
 import csv
+
+START_DATE = date(2011, 7, 1)
+END_DATE = date(2025, 3, 1)
 
 
 def is_leap_year(curr_year: int) -> bool:
@@ -22,10 +26,6 @@ def is_leap_year(curr_year: int) -> bool:
     :return: Boolean indicator of the whether input year is leap.
     """
     return curr_year % 4 == 0 and (curr_year % 100 != 0 or curr_year % 400 == 0)
-
-
-START_DATE = date(2011, 7, 1)
-END_DATE = date(2025, 3, 1)
 
 
 def within_date_range(curr_month: str, curr_year: int) -> bool:
@@ -79,47 +79,46 @@ months = [
     "01", "02", "03", "04", "05", "06",
     "07", "08", "09", "10", "11", "12"
 ]
-h = ['date']
+h = ["date"]
 missing = set()
 
 if __name__ == "__main__":
+    year_range = range(START_DATE.year, END_DATE.year + 1)
+    date_range = tuple(product(year_range, months))
 
     # Run loop once to build CSV header
-    for year in range(START_DATE.year, END_DATE.year + 1):
-        for month in months:
-            if within_date_range(month, year):
-                date_s = month + "/" + str(year)
-                h.append(date_s)
+    for year, month in date_range:
+        if within_date_range(month, year):
+            date_s = month + "/" + str(year)
+            h.append(date_s)
     H.append(h)
 
     # Collect count of public holidays per month for each country
     for country in country_codes:
-        h = [country + "_holiday"]
+        h = [country + "_holiday"]  # Column name
 
-        for year in range(START_DATE.year, END_DATE.year + 1):
-            for month in months:
+        for year, month in date_range:
 
-                # Don't collect data if date is out of required date range
-                if within_date_range(month, year):
-                    counter = 0
+            # Don't collect data if date is out of required date range
+            if within_date_range(month, year):
+                counter = 0
 
-                    # Loop through all days of the month
-                    for day in range(1, 32):
+                # Loop through all days of the month
+                for day in range(1, 32):
+                    if not date_is_valid(day, month, year):
+                        continue
 
-                        # Check if date is valid:
-                        if not date_is_valid(day, month, year):
-                            continue
-                        try:
-                            c_holidays = holidays.country_holidays(country)
-                        except:
-                            if country not in missing:
-                                missing.add(country)
-                            continue
+                    try:
+                        country_holidays = holidays.country_holidays(country)
+                    except:
+                        if country not in missing:
+                            missing.add(country)
+                        continue
 
-                        if date(year, int(month), day) in c_holidays:
-                            counter += 1
+                    if date(year, int(month), day) in country_holidays:
+                        counter += 1
 
-                    h.append(counter)
+                h.append(counter)
         H.append(h)
         print("Added holidays of", country)
 
