@@ -1,0 +1,128 @@
+"""
+Created on Jan 20 01:49:41 2023
+
+This script produces a csv file "public_holidays.csv" with the monthly number
+of public holidays in 36 countries in the period July 2011 until March 2025.
+
+Code is based on python holidays package:
+https://holidays.readthedocs.io/en/latest/
+
+@author: Zaid Almahmoud
+"""
+from datetime import date
+import holidays
+import csv
+
+
+def is_leap_year(curr_year: int) -> bool:
+    """
+    Determine whether the year is a leap year.
+
+    :param curr_year: The year in question as integer.
+    :return: Boolean indicator of the whether input year is leap.
+    """
+    return curr_year % 4 == 0 and (curr_year % 100 != 0 or curr_year % 400 == 0)
+
+
+START_DATE = date(2011, 7, 1)
+END_DATE = date(2025, 3, 1)
+
+
+def within_date_range(curr_month: str, curr_year: int) -> bool:
+    """
+    Check whether the current month and year are within the required date range.
+
+    :param curr_month: String representation of the month e.g., '01', '10' etc.
+    :param curr_year: Current year as integer.
+
+    :return: Boolean indicator for falling within the required date range.
+    """
+    input_date = date(curr_year, int(curr_month), 1)
+    return START_DATE <= input_date <= END_DATE
+
+
+def date_is_valid(curr_day: int, curr_month: str, curr_year: int) -> bool:
+    """
+    Check is a date is valid. Examples:
+    date_is_valid(31, "04", 2022) -> False (April has only 30 days).
+    date_is_valid(29, "02", 2025) -> False (2025 is not a leap year).
+    date_is_valid(2, "02", 2021) -> True.
+
+    :param curr_day: Day in question as integer.
+    :param curr_month: Month in question as string e.g., "02", "10" etc.
+    :param curr_year: Year in question as integer.
+
+    :return: Boolean indicator for valid date.
+    """
+    if curr_month == "02" and curr_day > 28 and not is_leap_year(curr_year):
+        return False
+    if curr_month == "02" and curr_day > 29:
+        return False
+    if curr_day > 30 and any([
+        curr_month == "04",
+        curr_month == "06",
+        curr_month == "09",
+        curr_month == "11"
+    ]):
+        return False
+    return True
+
+
+country_codes = [
+    "US", "GB", "CA", "AU", "UA", "RU", "FR", "DE", "BR", "CN", "JP", "PK",
+    "KP", "KR", "IN", "TW", "NL", "ES", "SE", "MX", "IR", "IL", "SA", "SY",
+    "FI", "IE", "AT", "NO", "CH", "IT", "MY", "EG", "TR", "PT", "PS", "AE"
+]
+
+H = []
+months = [
+    "01", "02", "03", "04", "05", "06",
+    "07", "08", "09", "10", "11", "12"
+]
+h = ['date']
+missing = set()
+
+if __name__ == "__main__":
+
+    # Run loop once to build CSV header
+    for year in range(START_DATE.year, END_DATE.year + 1):
+        for month in months:
+            if within_date_range(month, year):
+                date_s = month + "/" + str(year)
+                h.append(date_s)
+    H.append(h)
+
+    # Collect count of public holidays per month for each country
+    for country in country_codes:
+        h = [country + "_holiday"]
+
+        for year in range(START_DATE.year, END_DATE.year + 1):
+            for month in months:
+
+                # Don't collect data if date is out of required date range
+                if within_date_range(month, year):
+                    counter = 0
+
+                    # Loop through all days of the month
+                    for day in range(1, 32):
+
+                        # Check if date is valid:
+                        if not date_is_valid(day, month, year):
+                            continue
+                        try:
+                            c_holidays = holidays.country_holidays(country)
+                        except:
+                            if country not in missing:
+                                missing.add(country)
+                            continue
+
+                        if date(year, int(month), day) in c_holidays:
+                            counter += 1
+
+                    h.append(counter)
+        H.append(h)
+        print("Added holidays of", country)
+
+    with open("PH_v2.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(list(map(list, zip(*H))))
