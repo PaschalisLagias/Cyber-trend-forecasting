@@ -7,6 +7,8 @@ of public holidays in 36 countries in the period July 2011 until March 2025.
 Code is based on python holidays package:
 https://holidays.readthedocs.io/en/latest/
 
+Version required to match original dataset: holidays==0.34
+
 @author: Zaid Almahmoud
 """
 from datetime import date
@@ -112,7 +114,7 @@ if __name__ == "__main__":
 
                     try:
                         country_holidays = holidays.country_holidays(country)
-                    except:
+                    except NotImplementedError:
                         if country not in missing:
                             missing.add(country)
                         continue
