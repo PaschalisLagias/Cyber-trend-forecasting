@@ -116,35 +116,34 @@ countries_dict = {
 }
 
 # Date range
-start_date = "2011-07"
-end_date = "2025-05"
-dt_range = pd.period_range(start_date, end_date, freq="M")
-
-# Init output empty dataframe
-output_df = pd.DataFrame()
-output_df.index = dt_range
+START_DATE = "2011-07"
+END_DATE = "2025-05"
 
 
 def aggr_dates(
     dates: Dict[str, List[datetime]],
-    date_range: pd.PeriodIndex
+    period_range: pd.PeriodIndex
 ) -> pd.DataFrame:
     """
     :param dates: Dictionary of the form {"Dates": [datetime, datetime, ...]}
-    :param date_range: Range of dates in format YYYY-MM
+    :param period_range: Range of dates in format YYYY-MM
 
     :return: Dataframe with counts of dates found per month, ordered by the
-    date range PeriodIndex.
+    preriod range PeriodIndex.
     """
     # Create mini dataframe and drop duplicate dates (probably same posts)
     count_df = pd.DataFrame(dates).drop_duplicates(subset="Dates")
 
     # Count of posts per month and re-indexing for all required months
     count_df = count_df["Dates"].dt.to_period("M").value_counts().sort_index()
-    return count_df.reindex(date_range, fill_value=0)
+    return count_df.reindex(period_range, fill_value=0)
 
 
 if __name__ == "__main__":
+    # Init output empty dataframe
+    date_range = pd.period_range(START_DATE, END_DATE, freq="M")
+    output_df = pd.DataFrame(index=date_range)
+    output_df.index.name = "Date"
 
     # Init Reddit client
     reddit = praw.Reddit(
@@ -186,9 +185,13 @@ if __name__ == "__main__":
                 print(f"Error fetching {code}: {e}")
 
         # Store country data to the output dataframe
-        df = aggr_dates(dates_dict, dt_range)
+        df = aggr_dates(dates_dict, date_range)
         output_df[col_name] = df.values
 
-    # Store output to CSV
-    output_df.to_csv("RedditWarConflicts_V2.csv", index=True)
-    print("Saved to RedditWarConflicts_V2.csv")
+    # Create column with monthly sum across all countries.
+    output_df["War_Conflict_All"] = output_df.sum(axis=1).astype(int)
+
+    # Export as CSV
+    output_csv = "RedditData.csv"
+    output_df.to_csv(output_csv, index=True)
+    print(f"Saved to {output_csv}")
