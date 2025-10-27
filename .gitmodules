@@ -1,3 +1,6 @@
 [submodule "TransformerS/Transformers/Graph_Transformer"]
 	path = TransformerS/Transformers/Graph_Transformer
 	url = https://github.com/BUAABIGSCity/PDFormer.git
+[submodule "Transformers/Graph_Transformer"]
+	path = Transformers/Graph_Transformer
+	url = https://github.com/BUAABIGSCity/PDFormer.git
