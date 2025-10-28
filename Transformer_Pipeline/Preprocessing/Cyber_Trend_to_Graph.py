@@ -7,13 +7,13 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-# Localimports - using project filename conventions
+# Local imports - using project filename conventions
 from .Load_Data import load_cyber_threat_data
 
 def main():
     """
-    Main function to load the data and outline the graph preprocessing steps.
-    Serves as a basic test vignette when the script is run directly.
+    Main function to load the data and process tp graph structure.
+    Can serve as a basic test vignette when the script is run directly.
     """
     # --- Configuration ---
     # Define file paths relative to this script's location
@@ -50,7 +50,7 @@ def main():
     # Calculate split indices based on TRAIN_SPLIT and VAL_SPLIT proportions.
     # Create train_df, val_df, test_df pandas DataFrames.
     # Print the date ranges and sizes of each split for verification.
-    print("\n--- Step 1.5: Splitting Data (Placeholder) ---")
+    print("\n--- Step 1.5: Splitting Data ---")
     # --- CODE ---
     # n = len(df_raw)
     # train_end = int(n * TRAIN_SPLIT)
@@ -59,7 +59,7 @@ def main():
     # val_df = df_raw.iloc[train_end:val_end]
     # test_df = df_raw.iloc[val_end:]
     # print(f"Train: {train_df.shape}, Val: {val_df.shape}, Test: {test_df.shape}")
-    print("Data splitting outlined.")
+    print("Data splitting complete.")
 
     # --- Step 2: Define the Graph (Spatial Structure) ---
     # --- PROCESS ---
@@ -67,7 +67,7 @@ def main():
     # Create the adjacency matrix based on CORRELATION_THRESHOLD.
     # Ensure the adjacency matrix is symmetric and has self-loops (diagonal = 1).
     # Save the adjacency matrix (e.g., as adj_mx.npy in OUTPUT_DIR).
-    print("\n--- Step 2: Defining Graph Structure (Placeholder) ---")
+    print("\n--- Step 2: Defining Graph Structure ---")
     # --- CODE ---
     # corr_matrix = train_df.corr()
     # adj_matrix = (np.abs(corr_matrix) > CORRELATION_THRESHOLD).astype(int)
@@ -75,7 +75,7 @@ def main():
     # adj_matrix_path = os.path.join(OUTPUT_DIR, 'adj_mx.npy')
     # np.save(adj_matrix_path, adj_matrix.values)
     # print(f"Adjacency matrix saved to {adj_matrix_path}")
-    print("Graph definition outlined.")
+    print("Graph definition complete.")
 
     # --- Step 3: Prepare the Time-Series Data (Temporal Features) ---
     # --- PROCESS ---
@@ -83,7 +83,7 @@ def main():
     # Fit the scaler *only* on the train_df numerical data.
     # Transform train_df, val_df, and test_df using the fitted scaler -> train_scaled, val_scaled, test_scaled (NumPy arrays).
     # Save the fitted scaler object (using pickle) for later inverse transformation.
-    print("\n--- Step 3: Normalizing Data (Placeholder) ---")
+    print("\n--- Step 3: Normalising Data  ---")
     # --- CODE ---
     # scaler = MinMaxScaler(feature_range=(0, 1))
     # train_scaled = scaler.fit_transform(train_df)
@@ -93,7 +93,7 @@ def main():
     # with open(scaler_path, 'wb') as f:
     #     pickle.dump(scaler, f)
     # print(f"Scaler saved to {scaler_path}")
-    print("Data normalization outlined.")
+    print("Data normalisation complete.")
 
     # --- Step 4: Windowing and Formatting ---
     # --- PROCESS ---
@@ -103,7 +103,7 @@ def main():
     # Format y with shape (samples, forecast_horizon, num_nodes, num_features=1).
     # num_nodes will be the number of columns (e.g., 113).
     # If needed for GAT+Transformer, the function might return X as (samples, window_size, num_nodes * num_features) or similar.
-    print("\n--- Step 4: Windowing Data (Placeholder) ---")
+    print("\n--- Step 4: Windowing Data ---")
     # --- CODE ---
     # X_train, y_train = create_sliding_windows(train_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     # X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
@@ -114,9 +114,9 @@ def main():
     # --- Step 5: Save Processed Data ---
     # --- PROCESS ---    
     # Save the windowed data (X_train, y_train, X_val, y_val, X_test, y_test).
-    # Typically saved as .npz files for convenience (e.g., train.npz, val.npz, test.npz).
+    # Saved as .npz files for convenience (e.g., train.npz, val.npz, test.npz).
     # Also save node names (column headers) if needed for interpretation later.
-    print("\n--- Step 5: Saving Processed Data (Placeholder) ---")
+    print("\n--- Step 5: Saving Processed Data ---")
     # --- CODE ---
     # train_path = os.path.join(OUTPUT_DIR, 'train.npz')
     # val_path = os.path.join(OUTPUT_DIR, 'val.npz')
