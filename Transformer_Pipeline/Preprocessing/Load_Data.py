@@ -13,10 +13,10 @@ def load_cyber_threat_data(file_path='../../Data_Preperation/Cyber_Trend_Forecas
                       parsed and set as the index. Returns None if the file is not found.
     """
     # Construct the absolute path based on the script's location
-    script_dir = os.path.dirname(__file__) # Gets the directory where the script is run
+    script_dir = os.path.dirname(__file__) # Gets working dir
     abs_file_path = os.path.join(script_dir, file_path)
 
-    # Check PATH
+    # Check PATH (incase of error)
     print(f"DEBUG: Attempting to load file from absolute path: {abs_file_path}")
     if not os.path.exists(abs_file_path):
         print(f"Error: File not found at {abs_file_path}")
@@ -39,10 +39,10 @@ def load_cyber_threat_data(file_path='../../Data_Preperation/Cyber_Trend_Forecas
         return None
 
 if __name__ == '__main__':
-    # This block allows you to run the script directly to test the loading function
+    # Run the script directly to test the loading function
+    # Will include this in addition to Vignette
     data = load_cyber_threat_data()
 
     if data is not None:
         print("\nData summary:")
         print(data.info())
-        # You can add more exploratory steps here if needed
