@@ -6,11 +6,24 @@ This directory contains all the original source code for the experiments in this
 
 ```
 Transformer_Pipeline/
-├── preprocessing/
-│   └── example_preprocessing.py
-└── models/
+├── Preprocessing/
+│   └── Load_Data.py
+│   └── Cyber_Trend_to_Graph.py
+└── Models/
     └── example_model.py
 ```
+## Preprocessing Scripts
+
+This directory contains the scripts for loading and transforming the raw cyber threat data into formats suitable for the transformer models.
+
+* **`Load_Data.py`**:
+    * Provides a reusable function (`load_cyber_threat_data`) to load the raw `Cyber_Trend_Forecasting_All.csv` file.
+    * Handles date parsing and sets the 'Date' column as the DataFrame index.
+    * Performs basic validation (checking file existence, sorting data).
+
+* **`Cyber_Trend_to_Graph.py`**:
+    * Imports the loading function from `Load_Data.py`.
+    *
 
 ## How to Run the Pipeline
 
