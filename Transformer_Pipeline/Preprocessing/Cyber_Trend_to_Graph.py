@@ -177,8 +177,8 @@ def main():
     """
     # --- Configuration - CONSTANTS ---
     SCRIPT_DIR = os.path.dirname(__file__)
-    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../data/raw/Cyber_Trend_Forecasting_All.csv')
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../processed_data_graph') # graph output
+    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preperation/Cyber_Trend_Forecasting_All.csv')
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Data/Processed_Data_Graph') # graph output
 
     TRAIN_SPLIT = 0.7
     VAL_SPLIT = 0.1
