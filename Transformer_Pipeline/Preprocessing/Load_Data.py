@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-def load_cyber_threat_data(file_path='../../Data_Preperation/Cyber_Trend_Forecasting_All.csv'):
+def load_cyber_threat_data(file_path='../../Data_Preparation/Cyber_Trend_Forecasting_All.csv'):
     """
     Loads the cyber threat time-series data from the specified CSV file.
 
