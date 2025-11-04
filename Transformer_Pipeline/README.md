@@ -9,12 +9,14 @@ This code is kept separate from the original author's forked codebase (in the ro
 ```
 Transformer_Pipeline/
 ├── Preprocessing/
-│   └── Load_Data.py
+│   ├── Load_Data.py
 │   └── Cyber_Trend_to_Graph.py
-└── Cyber_Trend_Graph_Dataset.py
-└── Models/
-    └── PDFormerWrapper.py
-└── Cyber_Trend_Train.py    
+├── Models/
+│    └── PDFormer_Wrapper.py
+├── Cyber_Trend_Graph_Dataset.py
+├── Graph_Train.py  
+├── Run_Pipeline.py  
+└── pdformer_config.json
 ```
 
 ## Components
@@ -53,7 +55,7 @@ The Model subdirectory contains model architecture files, i.e the wrapper for PD
 
 Main training script
 
-* **`Cyber_Trend_Train.py`**
+* **`Graph_Train.py`**
     * **Purpose:** This will be the main, executable script to run the entire training and evaluation experiment.
     * **Process:**
         1.  Imports the `Batch` class from the `libcity` submodule.
@@ -64,6 +66,19 @@ Main training script
         6.  Creates the PyTorch `DataLoader`, passing it our dataset and our custom `collator`.
         7.  Runs the complete PyTorch training and evaluation loops
 
+### Pipeline Script
+
+Main Pipeline script
+
+* **`Run_Pipeline.py`**
+    * **Purpose:** This script is the single, main entry point for all experiments in the `Transformer_Pipeline/` directory. The script handles the entire end-to-end workflow, from checking data to launching the correct training process.
+    * **Process:**
+        * Acts as the single, main entry point for running all experiments (e.g., `python Run_Pipeline.py --model graph`).
+        * Parses user arguments to control the pipeline's behavior, such as `--model`, `--train-only`, `--force-preprocess`, or `--pdformer`.
+        * Checks if the required processed data files exist in the `Processed_Data/` directory.
+        * Conditionally runs the correct preprocessing script (e.g., `Cyber_Trend_to_Graph.py`) using `subprocess` if data is missing or if `--force-preprocess` is flagged.
+        * Conditionally runs the correct training script (e.g., `Train_Graph.py`) using `subprocess`, passing down all necessary hyperparameters (like `--config-file`, `--learning-rate`, etc.).
+        * Includes a placeholder to run the "vision" pipeline (e.g., when `--model vision` is used).
 
 ## How to Run the Pipeline 
 
