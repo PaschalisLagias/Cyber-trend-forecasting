@@ -9,4 +9,5 @@
 /Data_Preparation/cookies.py
 /Data_Preparation/scopus_cookies.pkl
 /geckodriver.log
-.venv/
+/Processed_Data
+/.venv
