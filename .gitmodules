@@ -4,3 +4,6 @@
 [submodule "Transformers/Graph_Transformer"]
 	path = Transformers/Graph_Transformer
 	url = https://github.com/BUAABIGSCity/PDFormer.git
+[submodule "Transformers/Visual_Transformer"]
+	path = Transformers/Visual_Transformer
+	url = https://github.com/Keytoyze/VisionTS
