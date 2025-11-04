@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-# Imports for PDFormer transformations (uncomment when implementing)
+# Imports for PDFormer transformations (uncomment when once final test complete)
 # from fastdtw import fastdtw
 # from tslearn.clustering import TimeSeriesKMeans
 
@@ -220,7 +220,7 @@ def compute_cluster_keys(X_train, n_clusters, output_dir):
 def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_test, node_names,
                         adj_matrix=None, dtw_matrix=None, sh_mx=None, sd_mx=None, pattern_keys=None):
     """
-    Saves all processed, windowed data and graph artifacts into files.
+    Saves all processed, windowed data and graph Outputs into files.
 
     Args:
         output_dir (str): The directory path to save the processed files.
@@ -245,10 +245,10 @@ def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_te
     # Save the windowed data (X_train, y_train, X_val, y_val, X_test, y_test)
     # as .npz files for convenience (e.g., train.npz, val.npz, test.npz).
     # Save node names (column headers).
-    # If PDFormer-specific artifacts are provided (not None), save them as .npy files.
+    # If PDFormer-specific outputs are provided (not None), save them as .npy files.
 
     # --- CODE ---
-    # --- Generic Artifacts ---
+    # --- Generic Outputs ---
     # train_path = os.path.join(output_dir, 'train.npz')
     # val_path = os.path.join(output_dir, 'val.npz')
     # test_path = os.path.join(output_dir, 'test.npz')
@@ -261,7 +261,7 @@ def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_te
     #   np.save(os.path.join(output_dir, 'adj_mx.npy'), adj_matrix)
     # print(f"Generic processed data saved in {output_dir}")
 
-    # --- PDFormer-Specific Artifacts ---
+    # --- PDFormer-Specific Outputs ---
     # if dtw_matrix is not None:
     #     np.save(os.path.join(output_dir, 'dtw_matrix.npy'), dtw_matrix)
     #     print("Saved dtw_matrix.npy")
@@ -276,7 +276,7 @@ def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_te
     #     print("Saved pattern_keys.npy")
     print("Saving processed data outlined.")
 
-# ------------------- Main Orchestration -------------------
+# ------------------- Main function -------------------
 
 def main():
     """
@@ -286,12 +286,12 @@ def main():
     # --- Configuration - Argument Parsing ---
     parser = argparse.ArgumentParser(description="Data preprocessing script for graph-based time-series models.")
     parser.add_argument('--pdformer', action='store_true',
-                        help="Set this flag to generate the additional, expensive artifacts required by the PDFormer model (e.g., DTW matrix, cluster keys).")
+                        help="Set this flag to generate the additional, expensive outputs required by the PDFormer model (e.g., DTW matrix, cluster keys).")
     args = parser.parse_args()
 
     # --- Configuration - CONSTANTS ---
     SCRIPT_DIR = os.path.dirname(__file__)
-    # Note: Using the corrected path based on our earlier discussion
+    # Note: New output filepath saves to folder in project root
     RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
     OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Processed_Data/graph') # Corrected output path
 
@@ -300,18 +300,18 @@ def main():
     WINDOW_SIZE = 30
     FORECAST_HORIZON = 1
     CORRELATION_THRESHOLD = 0.7
-    N_CLUSTERS = 16 # Example hyperparameter for PDFormer clustering
+    N_CLUSTERS = 16 # Hyperparameter required for PDFormer clustering
 
     # Create output directory if it doesn't exist
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"Created output directory: {OUTPUT_DIR}")
 
-    # --- Step 1: Load Data ---
+    # --- Step 1.1: Load Data ---
     df_raw = load_cyber_threat_data(RAW_DATA_FILE)
     if df_raw is None: return
 
-    # --- Step 1.5: Split Data ---
+    # --- Step 1.2: Split Data ---
     train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
     if train_df is None: return # Check if split failed
 
@@ -329,20 +329,20 @@ def main():
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     if X_train is None: return # Check if windowing failed
 
-    # --- Step 4.5: (Optional) PDFormer-Specific Artifacts ---
+    # --- Step 4.1: (Optional) PDFormer-Specific Outputs ---
     dtw_matrix = None
     sh_mx = None
     sd_mx = None
     pattern_keys = None
 
     if args.pdformer:
-        print("\n--- Generating PDFormer-Specific Artifacts (this may take a while) ---")
+        print("\n--- Generating PDFormer-Specific Outputs ---")
         dtw_matrix = compute_dtw_matrix(train_df, OUTPUT_DIR)
         sh_mx, sd_mx = compute_shortest_path_matrices(adj_matrix, OUTPUT_DIR)
         pattern_keys = compute_cluster_keys(X_train, N_CLUSTERS, OUTPUT_DIR)
-        print("--- PDFormer artifact generation outlined ---")
+        print("--- PDFormer Outputs generation outlined ---")
     else:
-        print("\n--- Skipping PDFormer-Specific Artifacts (run with --pdformer to generate) ---")
+        print("\n--- Skipping PDFormer-Specific Outputs (run with --pdformer to generate) ---")
 
     # --- Step 5: Save Processed Data ---
     node_names = df_raw.columns.values
@@ -357,7 +357,7 @@ def main():
         pattern_keys=pattern_keys
     )
 
-    print("\nPreprocessing script skeleton complete.")
+    print("\nPreprocessing script complete.")
 
 if __name__ == '__main__':
     main()
