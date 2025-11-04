@@ -293,7 +293,7 @@ def main():
     SCRIPT_DIR = os.path.dirname(__file__)
     # Note: Using the corrected path based on our earlier discussion
     RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../data/processed_graph') # Corrected output path
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Processed_Data/graph') # Corrected output path
 
     TRAIN_SPLIT = 0.7
     VAL_SPLIT = 0.1

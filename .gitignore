@@ -9,4 +9,13 @@
 /Data_Preparation/cookies.py
 /Data_Preparation/scopus_cookies.pkl
 /geckodriver.log
-.venv/
+# if using a virtual enviroment 
+/.venv
+# Ignore all data files inside the processed data folders
+# These are potentially very large
+/Processed_Data/graph/*
+/Processed_Data/vision/*
+# BUT, do NOT ignore the .gitkeep files 
+# These will maintain the folder structure
+!/Processed_Data/graph/.gitkeep
+!/Processed_Data/vision/.gitkeep
