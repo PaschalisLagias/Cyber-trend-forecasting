@@ -1,10 +1,21 @@
 import os
-
 import pandas as pd
 
-
 def load_cyber_threat_data(file_path: str = '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv') -> pd.DataFrame | None:
-    """Loads the cyber threat time-series data from the specified CSV file."""
+    """
+    Loads and preprocesses cyber threat time-series data from a CSV file.
+
+    This function resolves the file path relative to the script's location,
+    parses the 'Date' column as the datetime index, and sorts the data chronologically.
+
+    Args:
+        file_path (str, optional): The relative path to the CSV file. 
+            Defaults to '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv'.
+
+    Returns:
+        pd.DataFrame | None: A pandas DataFrame indexed by Date if loading is successful;
+            returns None if the file is not found or an error occurs.
+    """
     script_dir = os.path.dirname(__file__)
     abs_file_path = os.path.join(script_dir, file_path)
 
