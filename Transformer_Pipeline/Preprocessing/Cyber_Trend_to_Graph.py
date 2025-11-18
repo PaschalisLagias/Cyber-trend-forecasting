@@ -9,8 +9,8 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
 # Imports for PDFormer transformations (uncomment when once final test complete)
-# from fastdtw import fastdtw
-# from tslearn.clustering import TimeSeriesKMeans
+from fastdtw import fastdtw
+from tslearn.clustering import TimeSeriesKMeans
 
 # Local imports - using project filename conventions
 from .Load_Data import load_cyber_threat_data
@@ -33,18 +33,20 @@ def split_data(df_raw, train_split, val_split):
     # Calculate split indices based on TRAIN_SPLIT and VAL_SPLIT proportions.
     # Create train_df, val_df, test_df pandas DataFrames using iloc.
     # Print the date ranges and sizes of each split for verification.
-    print("\n--- Step 1: Splitting Data ---")
     # --- CODE ---
-    # n = len(df_raw)
-    # train_end = int(n * train_split)
-    # val_end = int(n * (train_split + val_split))
-    # train_df = df_raw.iloc[:train_end]
-    # val_df = df_raw.iloc[train_end:val_end]
-    # test_df = df_raw.iloc[val_end:]
-    # print(f"Train: {train_df.shape}, Val: {val_df.shape}, Test: {test_df.shape}")
-    print("Data splitting outlined.")
-    # We return 3 dataframes 
-    return df_raw, df_raw, df_raw # Returning df_raw 3x as placeholder to avoid errors in main()
+    print("\n--- Step 1: Splitting Data ---")
+    n = len(df_raw)
+    train_end = int(n * train_split)
+    val_end = int(n * (train_split + val_split))
+
+    train_df = df_raw.iloc[:train_end]
+    val_df = df_raw.iloc[train_end:val_end]
+    test_df = df_raw.iloc[val_end:]
+
+    print(f"Train: {train_df.shape}, Val: {val_df.shape}, Test: {test_df.shape}")
+    print("Data splitting complete")
+    return train_df, val_df, test_df
+
 
 def define_graph_structure(train_df, correlation_threshold, output_dir):
     """
@@ -64,16 +66,21 @@ def define_graph_structure(train_df, correlation_threshold, output_dir):
     # Ensure the adjacency matrix is symmetric and has self-loops (diagonal = 1).
     # Save the adjacency matrix (e.g., as adj_mx.npy in OUTPUT_DIR).
     print("\n--- Step 2: Defining Graph Structure ---")
-    # --- CODE ---
-    # corr_matrix = train_df.corr()
-    # adj_matrix = (np.abs(corr_matrix) > correlation_threshold).astype(int)
-    # np.fill_diagonal(adj_matrix.values, 1)
-    # adj_matrix_path = os.path.join(output_dir, 'adj_mx.npy')
-    # np.save(adj_matrix_path, adj_matrix.values)
-    # print(f"Adjacency matrix saved to {adj_matrix_path}")
-    print("Graph definition outlined.")
-    # We return a matrix 
-    return np.zeros((train_df.shape[1], train_df.shape[1])) # Placeholder matrix
+
+    # Calculate correlation based only on training data to avoid leakage
+    corr_matrix = train_df.corr()
+    
+    # Create adjacency: 1 if correlation > threshold, else 0
+    adj_matrix = (np.abs(corr_matrix) > correlation_threshold).astype(int)
+    # Ensure diagonal is 1 (self-loops) - important for GNNs
+    np.fill_diagonal(adj_matrix.values, 1)
+    
+    # Save data
+    adj_matrix_path = os.path.join(output_dir, 'adj_mx.npy')
+    np.save(adj_matrix_path, adj_matrix.values)
+    print(f"Adjacency matrix saved to {adj_matrix_path}"
+    print("Graph definition complete")
+    return adj_matrix.values
 
 def normalise_data(train_df, val_df, test_df, output_dir):
     """
@@ -96,18 +103,23 @@ def normalise_data(train_df, val_df, test_df, output_dir):
     # Transform train_df, val_df, and test_df using the fitted scaler -> train_scaled, val_scaled, test_scaled (NumPy arrays).
     # Save the fitted scaler object (using pickle) for later inverse transformation.
     print("\n--- Step 3: Normalising Data ---")
-    # --- CODE ---
-    # scaler = MinMaxScaler(feature_range=(0, 1))
-    # train_scaled = scaler.fit_transform(train_df)
-    # val_scaled = scaler.transform(val_df)
-    # test_scaled = scaler.transform(test_df)
-    # scaler_path = os.path.join(OUTPUT_DIR, 'scaler.pkl')
-    # with open(scaler_path, 'wb') as f:
-    #     pickle.dump(scaler, f)
-    # print(f"Scaler saved to {scaler_path}")
-    print("Data normalisation outlined.")
+    
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    
+    # Fit ONLY on training data, transform all
+    train_scaled = scaler.fit_transform(train_df)
+    val_scaled = scaler.transform(val_df)
+    test_scaled = scaler.transform(test_df)
+    
+    # Save the scaler so we can reverse this later for predictions
+    scaler_path = os.path.join(output_dir, 'scaler.pkl')
+    with open(scaler_path, 'wb') as f:
+        pickle.dump(scaler, f)
+    
+    print(f"Scaler saved to {scaler_path}") 
+    print("Data normalisation complete")
     # Return 3 matrices and 1 scaler
-    return train_df.values, val_df.values, test_df.values, None # Placeholders
+    return train_scaled, val_scaled, test_scaled, scaler
 
 def create_sliding_windows(data_scaled, window_size, forecast_horizon):
     """
@@ -119,10 +131,12 @@ def create_sliding_windows(data_scaled, window_size, forecast_horizon):
         forecast_horizon (int): The number of future time steps to predict.
 
     Returns:
-        tuple[np.ndarray, np.ndarray] or tuple[None, None]:
-            Input sequences (X) and target sequences (y) as NumPy arrays, or Nones if windowing fails.
-            Expected shape for X: (samples, window_size, num_nodes, num_features=1)
-            Expected shape for y: (samples, forecast_horizon, num_nodes, num_features=1)
+    tuple[np.ndarray, np.ndarray]: A tuple containing:
+            - X (Input): Shape (num_samples, window_size, num_nodes, 1)
+            - y (Target): Shape (num_samples, forecast_horizon, num_nodes, 1)
+            
+            Where 'num_samples' is calculated as:
+            total_time_steps - window_size - forecast_horizon + 1
     """
     print("\n--- Step 4: Windowing Data ---")
     # --- PROCESS ---
@@ -131,15 +145,24 @@ def create_sliding_windows(data_scaled, window_size, forecast_horizon):
     # Format X with shape (samples, window_size, num_nodes, num_features=1).
     # Format y with shape (samples, forecast_horizon, num_nodes, num_features=1).
     # num_nodes will be data_scaled.shape[1].
-    print("Data windowing outlined.")
-    # --- CODE ---
-    # Example placeholder return (replace with actual arrays)
-    # num_samples = data_scaled.shape[0] - window_size - forecast_horizon + 1
-    # num_nodes = data_scaled.shape[1]
-    # X_shape = (num_samples, window_size, num_nodes, 1)
-    # y_shape = (num_samples, forecast_horizon, num_nodes, 1)
-    # print(f"Calculated shapes: X {X_shape}, y {y_shape}")
-    return np.zeros((100, window_size, data_scaled.shape[1], 1)), np.zeros((100, forecast_horizon, data_scaled.shape[1], 1)) # Placeholder arrays
+    print("\n--- Step 4: Windowing Data ---")
+    
+    num_samples = data_scaled.shape[0] - window_size - forecast_horizon + 1
+    num_nodes = data_scaled.shape[1]
+    
+    # Initialise arrays
+    # Shape: (samples, window_size, nodes, features=1)
+    X = np.zeros((num_samples, window_size, num_nodes, 1))
+    y = np.zeros((num_samples, forecast_horizon, num_nodes, 1))
+    
+    for i in range(num_samples):
+        # Input: from i to i+window
+        X[i, :, :, 0] = data_scaled[i : i + window_size]
+        # Target: from i+window to i+window+horizon
+        y[i, :, :, 0] = data_scaled[i + window_size : i + window_size + forecast_horizon]
+        
+    print(f"Generated shapes: X={X.shape}, y={y.shape}")
+    return X, y
 
 # ------------------- PDFormer-Specific Functions -------------------
 
@@ -162,8 +185,33 @@ def compute_dtw_matrix(train_df, output_dir):
     # Use a nested loop (and fastdtw) to compute the distance between all pairs of nodes (i, j).
     # Save the resulting dtw_matrix.npy to the output_dir.
     # Return the dtw_matrix.
-    print("DTW matrix computation outlined.")
-    return None # matrix
+
+    # Dull training history to calculate the distance between nodes
+    data = train_df.values  # Shape: (time_steps, num_nodes)
+    num_nodes = data.shape[1]
+    
+    # InitialiSe zero matrix
+    dtw_matrix = np.zeros((num_nodes, num_nodes))
+    
+    print(f" - Calculating DTW for {num_nodes} nodes")
+    
+    # Nested loop to compare every node against every other node
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            # Calculate distance between Node i and Node j (entire history)
+            dist, _ = fastdtw(data[:, i], data[:, j], radius=1)
+            dtw_matrix[i, j] = dist
+            dtw_matrix[j, i] = dist # Symmetric
+            
+    print(" - DTW calculation complete.")
+    
+    # Save
+    save_path = os.path.join(output_dir, 'dtw_matrix.npy')
+    np.save(save_path, dtw_matrix)
+    print(f"Saved dtw_matrix to {save_path}")
+    
+    return dtw_matrix
+
 
 def compute_shortest_path_matrices(adj_matrix, output_dir):
     """
@@ -188,8 +236,42 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     # This might be computed from a different source in their 'rel' file.
     # For our purpose, we might adapt this or use the adj_matrix itself.
     # Placeholder: save a copy or computed version as sd_mx.npy.
-    print("Shortest path matrix computation outlined.")
-    return None, None # 2 matrices
+    
+    num_nodes = adj_matrix.shape[0]
+    
+    # Initialize Hop Matrix (sh_mx)
+    # 0 for diagonal, 1 for edges, 511 (arbitrary infinity) for non-edges
+    sh_mx = np.full((num_nodes, num_nodes), 511, dtype=int)
+    
+    # Set existing edges to 1
+    sh_mx[adj_matrix == 1] = 1
+    
+    # Set diagonal to 0
+    np.fill_diagonal(sh_mx, 0)
+    
+    # Floyd-Warshall Algorithm to find shortest paths
+    # (O(N^3) complexity - fast enough for < 200 nodes)
+    for k in range(num_nodes):
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                sh_mx[i, j] = min(sh_mx[i, j], sh_mx[i, k] + sh_mx[k, j])
+                
+    # Save Hop Matrix
+    sh_path = os.path.join(output_dir, 'sh_mx.npy')
+    np.save(sh_path, sh_mx)
+    print(f"Saved sh_mx (Hops) to {sh_path}")
+
+    # Initialise Distance Matrix (sd_mx)
+    # In PDFormer, if there are no physical distances, we use the Hop count 
+    # or the inverted adjacency weights. Here we will mirror sh_mx for simplicity
+    # unless you have a specific physical distance metric.
+    sd_mx = sh_mx.astype(float)
+    sd_path = os.path.join(output_dir, 'sd_mx.npy')
+    np.save(sd_path, sd_mx)
+    print(f"Saved sd_mx (Distances) to {sd_path}")
+
+    return sh_mx, sd_mx
+
 
 def compute_cluster_keys(X_train, n_clusters, output_dir):
     """
@@ -212,8 +294,40 @@ def compute_cluster_keys(X_train, n_clusters, output_dir):
     # Get the cluster centers (km.cluster_centers_).
     # Save the pattern_keys.npy to the output_dir.
     # Return the pattern_keys.
-    print("Cluster key computation outlined.")
-    return None # keys
+
+    
+    # X_train shape: (samples, window_size, num_nodes, 1)
+    # ClusterING the "Shapes" of traffic
+    # Combine all samples and all nodes to find atomic patterns
+    # Reshape to: (Total_Series, Window_Size, 1)
+    
+    samples, window, nodes, feats = X_train.shape
+    X_reshaped = X_train.transpose(0, 2, 1, 3).reshape(-1, window, feats)
+    
+    # If dataset is huge, we sub-sample for speed (optional)
+    # e.g., take random 10,000 samples if X_reshaped.shape[0] > 10000
+    if X_reshaped.shape[0] > 10000:
+        indices = np.random.choice(X_reshaped.shape[0], 10000, replace=False)
+        X_for_clustering = X_reshaped[indices]
+    else:
+        X_for_clustering = X_reshaped
+
+    print(f" - Clustering {X_for_clustering.shape[0]} time series into {n_clusters} patterns...")
+    
+    # Use k-Means with Euclidean distance (faster) or DTW (better but slower)
+    km = TimeSeriesKMeans(n_clusters=n_clusters, metric="euclidean", max_iter=10, verbose=True)
+    km.fit(X_for_clustering)
+    
+    # The keys are the centroids of the clusters
+    pattern_keys = km.cluster_centers_  # Shape: (n_clusters, window, 1)
+    
+    # Save
+    keys_path = os.path.join(output_dir, 'pattern_keys.npy')
+    np.save(keys_path, pattern_keys)
+    print(f"Saved pattern_keys to {keys_path}")
+    
+    return pattern_keys
+
 
 # ------------------- Save Function -------------------
 
@@ -247,87 +361,108 @@ def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_te
     # Save node names (column headers).
     # If PDFormer-specific outputs are provided (not None), save them as .npy files.
 
-    # --- CODE ---
     # --- Generic Outputs ---
-    # train_path = os.path.join(output_dir, 'train.npz')
-    # val_path = os.path.join(output_dir, 'val.npz')
-    # test_path = os.path.join(output_dir, 'test.npz')
-    # np.savez_compressed(train_path, x=X_train, y=y_train)
-    # np.savez_compressed(val_path, x=x_val, y=y_val)
-    # np.savez_compressed(test_path, x=x_test, y=y_test)
-    # node_names_path = os.path.join(output_dir, 'node_names.npy')
-    # np.save(node_names_path, node_names)
-    # if adj_matrix is not None:
-    #   np.save(os.path.join(output_dir, 'adj_mx.npy'), adj_matrix)
-    # print(f"Generic processed data saved in {output_dir}")
+    
+    # 1. Save Windowed Data (.npz)
+    # We use 'x' and 'y' keys so the Dataset class can find them easily later
+    train_path = os.path.join(output_dir, 'train.npz')
+    val_path = os.path.join(output_dir, 'val.npz')
+    test_path = os.path.join(output_dir, 'test.npz')
+    
+    np.savez_compressed(train_path, x=X_train, y=y_train)
+    np.savez_compressed(val_path, x=X_val, y=y_val)   # Fixed: x_val -> X_val
+    np.savez_compressed(test_path, x=X_test, y=y_test) # Fixed: x_test -> X_test
+    
+    print(f"Saved .npz files to {output_dir}")
+
+    # 2. Save Node Names
+    node_names_path = os.path.join(output_dir, 'node_names.npy')
+    np.save(node_names_path, node_names)
+    
+    # 3. Save Adjacency Matrix
+    if adj_matrix is not None:
+        np.save(os.path.join(output_dir, 'adj_mx.npy'), adj_matrix)
+        print("Saved adj_mx.npy")
 
     # --- PDFormer-Specific Outputs ---
-    # if dtw_matrix is not None:
-    #     np.save(os.path.join(output_dir, 'dtw_matrix.npy'), dtw_matrix)
-    #     print("Saved dtw_matrix.npy")
-    # if sh_mx is not None:
-    #     np.save(os.path.join(output_dir, 'sh_mx.npy'), sh_mx)
-    #     print("Saved sh_mx.npy")
-    # if sd_mx is not None:
-    #     np.save(os.path.join(output_dir, 'sd_mx.npy'), sd_mx)
-    #     print("Saved sd_mx.npy")
-    # if pattern_keys is not None:
-    #     np.save(os.path.join(output_dir, 'pattern_keys.npy'), pattern_keys)
-    #     print("Saved pattern_keys.npy")
-    print("Saving processed data outlined.")
+    
+    if dtw_matrix is not None:
+        np.save(os.path.join(output_dir, 'dtw_matrix.npy'), dtw_matrix)
+        print("Saved dtw_matrix.npy")
+        
+    if sh_mx is not None:
+        np.save(os.path.join(output_dir, 'sh_mx.npy'), sh_mx)
+        print("Saved sh_mx.npy")
+        
+    if sd_mx is not None:
+        np.save(os.path.join(output_dir, 'sd_mx.npy'), sd_mx)
+        print("Saved sd_mx.npy")
+        
+    if pattern_keys is not None:
+        np.save(os.path.join(output_dir, 'pattern_keys.npy'), pattern_keys)
+        print("Saved pattern_keys.npy")
+        
+    print("Saving complete")
 
 # ------------------- Main function -------------------
 
 def main():
     """
     Main function for the graph preprocessing pipeline.
-    Serves as a basic test vignette when the script is run directly.
     """
     # --- Configuration - Argument Parsing ---
     parser = argparse.ArgumentParser(description="Data preprocessing script for graph-based time-series models.")
     parser.add_argument('--pdformer', action='store_true',
-                        help="Set this flag to generate the additional, expensive outputs required by the PDFormer model (e.g., DTW matrix, cluster keys).")
+                        help="Generate expensive outputs required by PDFormer (DTW, Clustering).")
     args = parser.parse_args()
 
     # --- Configuration - CONSTANTS ---
-    SCRIPT_DIR = os.path.dirname(__file__)
-    # Note: New output filepath saves to folder in project root
-    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Processed_Data/graph') # Corrected output path
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    
+    # UPDATE 1: Check folder depth 
+    # Use '../' if Preprocessing and Data_Preparation are siblings.
+    # Use '../../' only if Preprocessing is nested deeper (e.g., src/Preprocessing).
+    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../Processed_Data/graph')
 
     TRAIN_SPLIT = 0.7
     VAL_SPLIT = 0.1
     WINDOW_SIZE = 30
     FORECAST_HORIZON = 1
     CORRELATION_THRESHOLD = 0.7
-    N_CLUSTERS = 16 # Hyperparameter required for PDFormer clustering
+    N_CLUSTERS = 16 
 
-    # Create output directory if it doesn't exist
+    # Create output directory
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
         print(f"Created output directory: {OUTPUT_DIR}")
 
     # --- Step 1.1: Load Data ---
+    # We pass the absolute path we calculated above to be safe
     df_raw = load_cyber_threat_data(RAW_DATA_FILE)
-    if df_raw is None: return
+    if df_raw is None: 
+        print("Could not load data.")
+        return
 
     # --- Step 1.2: Split Data ---
     train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
-    if train_df is None: return # Check if split failed
 
     # --- Step 2: Define Graph Structure ---
     adj_matrix = define_graph_structure(train_df, CORRELATION_THRESHOLD, OUTPUT_DIR)
-    if adj_matrix is None: return # Check if graph failed
 
     # --- Step 3: Normalise Data ---
+    # Captures the 4 return values correctly
     train_scaled, val_scaled, test_scaled, scaler = normalise_data(train_df, val_df, test_df, OUTPUT_DIR)
-    if train_scaled is None: return # Check if normalise failed
 
     # --- Step 4: Create Sliding Windows ---
     X_train, y_train = create_sliding_windows(train_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
-    if X_train is None: return # Check if windowing failed
+    
+    # Check if windowing failed (e.g., if data was too short)
+    if X_train is None: 
+        print("Windowing failed.")
+        return
 
     # --- Step 4.1: (Optional) PDFormer-Specific Outputs ---
     dtw_matrix = None
@@ -340,7 +475,6 @@ def main():
         dtw_matrix = compute_dtw_matrix(train_df, OUTPUT_DIR)
         sh_mx, sd_mx = compute_shortest_path_matrices(adj_matrix, OUTPUT_DIR)
         pattern_keys = compute_cluster_keys(X_train, N_CLUSTERS, OUTPUT_DIR)
-        print("--- PDFormer Outputs generation outlined ---")
     else:
         print("\n--- Skipping PDFormer-Specific Outputs (run with --pdformer to generate) ---")
 
