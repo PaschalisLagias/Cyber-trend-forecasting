@@ -8,6 +8,9 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
+# Imports from base paper 
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
 # Imports for PDFormer transformations (uncomment when once final test complete)
 from fastdtw import fastdtw
 from tslearn.clustering import TimeSeriesKMeans
@@ -16,6 +19,45 @@ from tslearn.clustering import TimeSeriesKMeans
 from .Load_Data import load_cyber_threat_data
 
 # ------------------- Preprocessing Functions -------------------
+
+def apply_double_exponential_smoothing(df, alpha=0.1, beta=0.1):
+    """
+    Applies Double Exponential Smoothing (Holt's Linear Trend) to the dataframe.
+    
+    Args:
+        df (pd.DataFrame): Input data (Time x Nodes).
+        alpha (float): Smoothing factor for the level (0 < alpha < 1).
+        beta (float): Smoothing factor for the trend (0 < beta < 1).
+        
+    Returns:
+        pd.DataFrame: Smoothed data with the same shape and index.
+    """
+    print(f"\n--- Applying Double Exponential Smoothing (alpha={alpha}, beta={beta}) ---")
+    
+    df_smoothed = df.copy()
+    
+    # Apply to each column (node) independently
+    # We use a simple loop because statsmodels operates on 1D series
+    success_count = 0
+    
+    for col in df.columns:
+        try:
+            # Holt's Linear Trend method
+            # initialization_method='estimated' is robust for various data shapes
+            model = ExponentialSmoothing(
+                df[col], 
+                trend='add', 
+                seasonal=None, 
+                initialization_method='estimated'
+            )
+            fit = model.fit(smoothing_level=alpha, smoothing_trend=beta, optimized=False)
+            df_smoothed[col] = fit.fittedvalues
+            success_count += 1
+        except Exception as e:
+            print(f"Warning: Could not smooth column '{col}': {e}. Keeping raw data.")
+            
+    print(f"Smoothed {success_count}/{len(df.columns)} columns.")
+    return df_smoothed
 
 def split_data(df_raw, train_split, val_split):
     """
@@ -78,7 +120,7 @@ def define_graph_structure(train_df, correlation_threshold, output_dir):
     # Save data
     adj_matrix_path = os.path.join(output_dir, 'adj_mx.npy')
     np.save(adj_matrix_path, adj_matrix.values)
-    print(f"Adjacency matrix saved to {adj_matrix_path}"
+    print(f"Adjacency matrix saved to {adj_matrix_path}")
     print("Graph definition complete")
     return adj_matrix.values
 
@@ -416,19 +458,24 @@ def main():
                         help="Generate expensive outputs required by PDFormer (DTW, Clustering).")
     args = parser.parse_args()
 
-    # --- Configuration - CONSTANTS ---
+    # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     
-    # UPDATE 1: Check folder depth 
-    # Use '../' if Preprocessing and Data_Preparation are siblings.
-    # Use '../../' only if Preprocessing is nested deeper (e.g., src/Preprocessing).
-    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../Processed_Data/graph')
+    # Path handling for sibling directories
+    # Assumes structure: Transformer_Pipeline/Preprocessing/ and Data_Preparation/
+    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
+    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Processed_Data/graph')
 
-    TRAIN_SPLIT = 0.7
-    VAL_SPLIT = 0.1
-    WINDOW_SIZE = 30
-    FORECAST_HORIZON = 1
+    # --- Experimental Settings [Source: Paper Section 3.5] ---
+    # "partitioned the dataset into three distinct subsets: 43% for training, 30% for validation, and 27% for testing"
+    TRAIN_SPLIT = 0.43
+    VAL_SPLIT = 0.30
+    # Test Split is implicitly 0.27 (remainder)
+
+    # "model's input comprises 10 months of historical data... output encompasses forecasts for the subsequent 36 months"
+    WINDOW_SIZE = 10
+    FORECAST_HORIZON = 36
+    
     CORRELATION_THRESHOLD = 0.7
     N_CLUSTERS = 16 
 
@@ -437,21 +484,29 @@ def main():
         os.makedirs(OUTPUT_DIR)
         print(f"Created output directory: {OUTPUT_DIR}")
 
+    print(f"--- Configuration ---")
+    print(f"Window Size: {WINDOW_SIZE} months")
+    print(f"Forecast Horizon: {FORECAST_HORIZON} months")
+    print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT+VAL_SPLIT):.0%}")
+
     # --- Step 1.1: Load Data ---
-    # We pass the absolute path we calculated above to be safe
     df_raw = load_cyber_threat_data(RAW_DATA_FILE)
     if df_raw is None: 
-        print("Could not load data.")
+        print("Aborting: Could not load data.")
         return
+    
+    # --- Step 1.2: Double Exponential Smoothing ---
+    # The paper explicitly mentions using DES with alpha=0.1 (Section 4.1 caption)
+    # Applied BEFORE splitting to ensure the trend is captured cleanly
+    df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
 
-    # --- Step 1.2: Split Data ---
+    # --- Step 1.3: Split Data ---
     train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
 
     # --- Step 2: Define Graph Structure ---
     adj_matrix = define_graph_structure(train_df, CORRELATION_THRESHOLD, OUTPUT_DIR)
 
     # --- Step 3: Normalise Data ---
-    # Captures the 4 return values correctly
     train_scaled, val_scaled, test_scaled, scaler = normalise_data(train_df, val_df, test_df, OUTPUT_DIR)
 
     # --- Step 4: Create Sliding Windows ---
@@ -459,9 +514,9 @@ def main():
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     
-    # Check if windowing failed (e.g., if data was too short)
+    # Check if windowing failed (e.g., if data was too short for the large horizon)
     if X_train is None: 
-        print("Windowing failed.")
+        print("Aborting: Windowing failed.")
         return
 
     # --- Step 4.1: (Optional) PDFormer-Specific Outputs ---
