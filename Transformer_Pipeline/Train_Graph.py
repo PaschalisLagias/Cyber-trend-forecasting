@@ -36,6 +36,38 @@ def pdformer_collate_fn(batch_list, feature_name):
         batch.append((x_sample, y_sample))
     return batch
 
+def compute_metrics(all_preds, all_targets):
+    """
+    Computes RSE and RAE as defined in Eq. 10 & 11 of original paper.
+    
+    Args:
+        all_preds (torch.Tensor): Shape (N_samples, Time, Nodes, 1)
+        all_targets (torch.Tensor): Shape (N_samples, Time, Nodes, 1)
+        
+    Returns:
+        tuple: (rse, rae)
+    """
+    # Flatten everything to 1D vectors for easy summation over the entire test set
+    preds_flat = all_preds.view(-1)
+    targets_flat = all_targets.view(-1)
+    
+    # Calculate the mean of the ground truth (used in the denominator)
+    target_mean = torch.mean(targets_flat)
+    
+    # --- RSE (Root Relative Squared Error) ---
+    # Formula: sqrt( sum(pred - true)^2 ) / sqrt( sum(true - mean)^2 )
+    numerator_rse = torch.sqrt(torch.sum((preds_flat - targets_flat) ** 2))
+    denominator_rse = torch.sqrt(torch.sum((targets_flat - target_mean) ** 2))
+    rse = numerator_rse / (denominator_rse + 1e-7) # Add epsilon to avoid div by zero
+    
+    # --- RAE (Relative Absolute Error) ---
+    # Formula: sum( |pred - true| ) / sum( |true - mean| )
+    numerator_rae = torch.sum(torch.abs(preds_flat - targets_flat))
+    denominator_rae = torch.sum(torch.abs(targets_flat - target_mean))
+    rae = numerator_rae / (denominator_rae + 1e-7)
+    
+    return rse.item(), rae.item()
+
 def main():
     """
     Main entry point for the training and evaluation script.
@@ -190,29 +222,47 @@ def main():
         
         avg_train_loss = train_epoch_loss / len(train_loader)
         
-        # --- Validation Loop ---
+    # --- Validation Loop  ---
         model.eval()
         val_epoch_loss = 0.0
+        
+        # Lists to store all outputs for global metric calculation
+        val_preds_list = []
+        val_targets_list = []
         
         with torch.no_grad():
             for batch in val_loader:
                 batch.to_tensor(device)
-                y_true = batch['y']
+                y_true = batch['y'] # Shape: (B, T, N, F)
                 y_predicted = model(batch)
                 
+                # Standard Loss for optimisation monitoring
                 loss = loss_fn(y_predicted, y_true)
                 val_epoch_loss += loss.item()
+                
+                # Store for RSE/RAE calculation
+                val_preds_list.append(y_predicted.cpu())
+                val_targets_list.append(y_true.cpu())
 
         avg_val_loss = val_epoch_loss / len(val_loader)
+        
+        # Concatenate all batches to simulate the full test set Omega_Test
+        all_val_preds = torch.cat(val_preds_list, dim=0)
+        all_val_targets = torch.cat(val_targets_list, dim=0)
+        
+        # Calculate Paper Metrics
+        val_rse, val_rae = compute_metrics(all_val_preds, all_val_targets)
+        
         scheduler.step()
         
         epoch_time = time.time() - start_time
         print(f"Epoch {epoch+1}/{config['max_epoch']} | "
-              f"Train Loss: {avg_train_loss:.6f} | "
-              f"Val Loss: {avg_val_loss:.6f} | "
-              f"Time: {epoch_time:.1f}s")
-        
-        # wandb.log({"train_loss": avg_train_loss, "val_loss": avg_val_loss})
+              f"Time: {epoch_time:.1f}s | "
+              f"Train Loss: {avg_train_loss:.4f} | "
+              f"Val Loss (L1): {avg_val_loss:.4f} | "
+              f"RSE: {val_rse:.4f} | RAE: {val_rae:.4f}")
+              
+        # wandb.log({"rse": val_rse, "rae": val_rae})
 
     print("\n--- Training Complete ---")
 
