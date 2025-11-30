@@ -106,7 +106,6 @@ def main():
             cmd_train = [
                 sys.executable,
                 TRAIN_GRAPH_SCRIPT_PATH,
-                '--config_file', args.config_file,
                 '--data_dir', PROCESSED_GRAPH_DIR
             ]
 
