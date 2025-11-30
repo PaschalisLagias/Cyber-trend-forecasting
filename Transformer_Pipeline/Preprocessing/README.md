@@ -1,44 +1,79 @@
 # Preprocessing Pipeline
 
-This directory contains all scripts related to the **offline preprocessing** of the Cyber Trend Forecasting dataset. he purpose of these scripts is to transform the single, raw `Cyber_Trend_Forecasting_All.csv` file into a collection of processed output files that are in format our Graph Transformer require for training.
+This directory contains the scripts for the **offline preprocessing** of the Cyber Trend Forecasting dataset. These scripts transform the raw `Cyber_Trend_Forecasting_All.csv` file into the processed 4D tensors required for training.
 
-## Overview of the Transformation
+## Overview of the Graph Transformation
 
-The transformation process converts the single, flat CSV file (which is a 2D table of *time* vs. *threats*) into a complete, graph-based dataset ready for spatio-temporal forecasting.
+The transformation process converts the flat CSV file (a 2D table of *Time* vs. *Threats*) into a complete, graph-based dataset optimized for spatio-temporal forecasting.
 
-First, we define the **spatial structure** (the "map"). We treat each of the 113 threat columns as a "node" in a network. We then calculate the statistical correlation between every pair of nodes (using the training data) to create our primary **adjacency matrix**, which defines the connections of the graph.
+### 1. Data Ingestion & Smoothing
+We load the raw data, explicitly parsing the **`MMM-YY`** date format to ensure the time-series is sorted chronologically. We then apply **Double Exponential Smoothing (DES)** ($\alpha=0.1, \beta=0.1$) to reduce noise and capture the underlying trend, aligning with the B-MTGNN benchmark methodology.
 
-Second, we process the **temporal features**. We take the raw daily trend values for all 113 nodes, normalize them (so all values are between 0 and 1), and then use a sliding window to create "samples." Each sample consists of an input "chunk" (e.g., 30 days of data) and a corresponding target "chunk" (e.g., the 1 day we want to predict). These windowed `(X, y)` pairs are saved as our core training, validation, and test data.
+### 2. Spatial Structure (The Graph)
+We treat each of the threat columns as a "node" in a network. We calculate the statistical correlation between every pair of nodes (using the smoothed training data) to create the primary **Adjacency Matrix** (`adj_mx.npy`), which defines the graph topology.
 
-Finally, to support the specific needs of the PDFormer model, we run several *optional*, additional one-time computations. This includes calculating a **Dynamic Time Warping (DTW) matrix** to find nodes with similar-shaped trends, computing **shortest-path matrices** to understand how threats propagate, and running **time-series clustering** to identify common patterns. All of these -the windowed data, the adjacency matrix, the DTW matrix, and the cluster keys - are saved as separate files.
+### 3. Temporal Features (Windowing)
+We normalise the smoothed trend values (0 to 1) and slice the time-series into "samples" using the strict experimental settings defined in the benchmark paper:
+* **Input Window:** 10 Months (History)
+* **Forecast Horizon:** 36 Months (Future Target)
+* **Splits:** 43% Train, 30% Validation, 27% Test
 
-## Scripts in this Directory
+### 4. PDFormer Data (Extended Pathway)
+To support the PDFormer architecture, we run additional computations:
+* **DTW Matrix:** Dynamic Time Warping distances between nodes.
+* **Shortest Path Matrices:** Hop counts and distances based on the adjacency matrix.
+* **Cluster Keys:** Representative time-series patterns (via K-Means) used for the model's geometric attention.
+
+---
+
+## Overview of the Graph Transformation
+
+...
+---
+
+## Scripts
 
 * **`Load_Data.py`**:
-    * Provides a single, reusable function (`load_cyber_threat_data`) to load the raw `Cyber_Trend_Forecasting_All.csv` file.
-    * Handles date parsing and sets the 'Date' column as the DataFrame index.
-    * Performs basic validation (checking file existence, sorting data).
+    * Loads the raw CSV.
+    * **Crucial:** Handles the specific `MMM-YY` date format to prevent chronological scrambling.
 
 * **`Cyber_Trend_to_Graph.py`**:
-    * This is the main offline preprocessing engine for all graph models.
-    * Imports the loading function from `Load_Data.py`.
-    * Runs the **Generic Pathway** (default): Creates the base dataset, including `train.npz`, `val.npz`, `test.npz`, `adj_mx.npy`, and `scaler.pkl`.
-    * Runs the **Extended Pathway** (optional, via `--pdformer` flag): Computes and saves the additional, computationally expensive artifacts required by the PDFormer model (e.g., `dtw_matrix.npy`, `sh_mx.npy`, `pattern_keys.npy`).
+    * The main engine. Imports `Load_Data`, applies Double Exponential Smoothing, and generates the `.npz` files.
+    * Supports the `--pdformer` flag to generate the computationally expensive matrices (DTW, Clustering).
+
+* **`Cyber_Trend_to_Image.py`**:
+    * **Vision Pipeline Only:** Converts the time-series into colorised 2D images for the VisionTS model.
+
+---
 
 ## How to Run
 
-To generate the data, navigate to this directory (`Transformer_Pipeline/Preprocessing/`) and run the `Cyber_Trend_to_Graph.py` script from your terminal.
+**IMPORTANT:** To ensure relative imports work, you must run these scripts as a **module** from the **Project Root** directory (one level up from `Transformer_Pipeline`).
 
-**1. Generic Pathway (Fast for a base Graph Transformer):**
-This is the default mode. It generates the base dataset.
+### 1. Graph Pipeline Execution
+This generates the full dataset including PDFormer artifacts.
+
+**1.1 Generic Pathway (Graph Base):**
+Generates `train.npz`, `val.npz`, `test.npz`, `adj_mx.npy`.
+
 ```bash
-python Cyber_Trend_to_Graph.py
+python -m Transformer_Pipeline.Preprocessing.Cyber_Trend_to_Graph
 ```
-This will generate: `train.npz`, `val.npz`, `test.npz`, `adj_mx.npy`, and `scaler.pkl` in the data/processed_graph/ directory.
+**1.2 Extended Pathway (Graph PDFormer):**
+Generates base files plus `dtw_matrix.npy`, `sh_mx.npy`, `pattern_keys.npy`.
 
-**2. Extended Pathway (Slow, for PDFormer):** This mode runs the generic pathway and the additional, slow computations required for the PDFormer model. **NOTE: The pdformer args required to run**
 ```bash
-python Cyber_Trend_to_Graph.py --pdformer
+python -m Transformer_Pipeline.Preprocessing.Cyber_Trend_to_Graph --pdformer
 ```
+Outputs (in `Processed_Data/graph/`):
 
-This will generate all the basefiles plus: ```dtw_matrix.npy```, ```sh_mx.npy```, ```sd_mx.npy```and ```pattern_keys.npy```
+* `train.npz`, `val.npz`, `test.npz` (The 10-input / 36-output tensors)
+* `adj_mx.npy` (Adjacency Matrix)
+* `dtw_matrix.npy`, `sh_mx.npy`, `pattern_keys.npy` (PDFormer specifics)
+
+### 2. Vision Pipeline Execution
+To generate data for the VisionTS experiment:
+
+```bash
+python -m Transformer_Pipeline.Preprocessing.Cyber_Trend_to_Image
+```
