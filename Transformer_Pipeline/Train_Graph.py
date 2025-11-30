@@ -21,10 +21,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 # Local application imports
+from Cyber_Trend_Graph_Config import PDFormerConfig
 from Graph_Dataset import CyberThreatGraphDataset
-# Ensure you have this wrapper available
 from Models.PDFormer_Wrapper import PDFormerModel 
-# Ensure this path matches your library structure
 from Transformers.Graph_Transformer.libcity.data.batch import Batch 
 
 def pdformer_collate_fn(batch_list, feature_name):
@@ -74,38 +73,34 @@ def main():
     """
     
     # --- 1. Configuration Setup ---
-    print("--- 1. Setting up Configuration ---")
     parser = argparse.ArgumentParser(description="Main training script for PDFormer model.")
     
-    parser.add_argument('--config_file', type=str, default='pdformer_config.json',
-                        help="Path to the JSON config file.")
-    # UPDATED DEFAULT PATH to match our pipeline
+    # Path to the directory with processed data files
     parser.add_argument('--data_dir', type=str, default='../Processed_Data/graph',
                         help="Path to the directory with processed data files.")
-    parser.add_argument('--learning_rate', type=float, default=0.001, 
+    
+    # Overrides for hyperparameters
+    parser.add_argument('--learning_rate', type=float, default=None, 
                         help="Override for learning rate.")
-    parser.add_argument('--epochs', type=int, default=10, 
+    parser.add_argument('--epochs', type=int, default=None, 
                         help="Override for number of epochs.")
-    parser.add_argument('--batch_size', type=int, default=16, 
+    parser.add_argument('--batch_size', type=int, default=None, 
                         help="Override for batch size.")
     
     args = parser.parse_args()
 
-    # Load Config
-    config_path = os.path.join(SCRIPT_DIR, args.config_file)
-    # Basic default config in case JSON is missing
-    config = {
-        'learning_rate': 0.001, 
-        'max_epoch': 10, 
-        'batch_size': 16, 
-        'weight_decay': 0.0001,
-        'embed_dim': 64, 
-        'skip_depth': 2, 
-        'lape_dim': 8, 
-        'geo_num_heads': 4, 
-        'sem_num_heads': 2,
-        'num_workers': 0
-    }
+    # Load Config from Python Class
+    config = PDFormerConfig()
+    
+    # Apply Overrides from Command Line
+    config.update_from_args(args)
+    
+    # Set Device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config.device = str(device)
+    
+    print(f"Loaded configuration for model: {config.model_name}")
+    print(f"Using device: {device}")
     
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
