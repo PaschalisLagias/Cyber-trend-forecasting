@@ -3,7 +3,6 @@ import json
 import torch
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
 # Import custom modules
@@ -110,48 +109,11 @@ def evaluate():
     print(results_df)
     print(f"Saved results table to {csv_path}")
 
-    # 7. Generate Plots (Visualisations)
-    print("--- Generating Visualisations ---")
-    
-    # A. Forecast vs Ground Truth (Sample 0, Node 0)
-    plt.figure(figsize=(10, 6))
-    plt.plot(trues_unscaled[0, :, 0], label='Ground Truth', marker='o')
-    plt.plot(preds_unscaled[0, :, 0], label='PDFormer Forecast', marker='x', linestyle='--')
-    plt.title("Forecast vs Actual (Sample 0, Node 0)")
-    plt.xlabel("Months Ahead")
-    plt.ylabel("Intensity")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(RESULTS_DIR, 'forecast_vs_actual.png'))
-    plt.close()
-
-    # B. Gap Analysis (Threat vs Mitigation)
-    # NOTE: You must map these indices to your real columns!
-    # Example: Column 0 is a Threat, Column 1 is its Mitigation
-    threat_idx = 0      
-    mitigation_idx = 1  
-    
-    threat_seq = preds_unscaled[0, :, threat_idx]
-    mitigation_seq = preds_unscaled[0, :, mitigation_idx]
-    gap_seq = calculate_gap(threat_seq, mitigation_seq)
-    
-    plt.figure(figsize=(10, 6))
-    plt.plot(threat_seq, color='red', label='Projected Threat')
-    plt.plot(mitigation_seq, color='green', label='Mitigation Capacity')
-    
-    # Fill the gap
-    plt.fill_between(range(len(threat_seq)), threat_seq, mitigation_seq, 
-                     where=(threat_seq > mitigation_seq), 
-                     color='red', alpha=0.3, label='Risk Gap')
-    
-    plt.title("Gap Analysis: Threat vs Mitigation Capacity")
-    plt.xlabel("Months Ahead")
-    plt.ylabel("Intensity / Maturity")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(os.path.join(RESULTS_DIR, 'gap_analysis.png'))
-    plt.close()
-    
+    # 7. Save Raw Predictions for visualisation
+    print("--- Saving Raw Predictions ---")
+    np.save(os.path.join(RESULTS_DIR, 'predictions.npy'), preds_unscaled)
+    np.save(os.path.join(RESULTS_DIR, 'ground_truth.npy'), trues_unscaled)
+    print(f"Saved .npy files to {RESULTS_DIR}/ for visualization.") 
     print(f"Saved plots to {RESULTS_DIR}/")
 
 if __name__ == "__main__":
