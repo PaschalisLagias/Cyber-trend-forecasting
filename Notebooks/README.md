@@ -11,6 +11,13 @@ Directory contains Jupyter notebooks used for verifying pipeline logic, visualis
 * **Tensor Shapes:** Confirms that the Preprocessing script generates strict 10-month input and 36-month target tensors.
 * **Training Loop:** Runs a short, interactive training session to verify that the RSE/RAE metrics are calculating correctly and decreasing.
 
+### 2. `Transformer_Pipeline_Vignette.ipynb`
+**Purpose:** Pipeline dashboard and demonstration tool for the project. Executes the end-to-end workflow (Train → Eval → Viz) and is designed to run on both Google Colab and the natogpu server.
+**Key Functions:**
+* **Environment Switching:** Automatically detects the runtime (Colab vs. Local) and handles drive mounting, pathing, and dependencies accordingly.
+* **Pipeline Manager:** Sequentially executes `Train_Graph.py`, `Evaluate_Graph.py`, and `Visualise_Results.py` using isolated memory states
+* **Interactive Demo:** Displays the final "Gap Analysis" and "Forecast" plots inline for stakeholder review.
+
 ## Setup & Usage
 
 * **Dependencies:** Ensure the full project requirements are installed, specifically `matplotlib`, `seaborn`, and `tqdm` for the visualisations.
