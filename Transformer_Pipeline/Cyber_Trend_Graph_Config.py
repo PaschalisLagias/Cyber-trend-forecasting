@@ -50,7 +50,7 @@ class PDFormerConfig:
     far_mask_delta: int = 2  # Reduced for shorter input window
     dtw_delta: int = 2
     s_attn_size: int = 3
-    t_attn_size: 1
+    t_attn_size: int = 1
 
     # --- Optimisation ---
     learner: str = "adamw"
