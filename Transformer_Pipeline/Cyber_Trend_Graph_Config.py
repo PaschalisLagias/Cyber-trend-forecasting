@@ -76,7 +76,7 @@ class PDFormerConfig:
         
         # Define standard paths
         self.raw_data_path = self.project_root / "Data_Preparation" / "Cyber_Trend_Forecasting_All.csv"
-        self.processed_data_dir = self.project_root / "Processed_Data" / "graph"
+        self.processed_data_dir = self.project_root / "Processed_Data" / "Graph"
 
     def to_dict(self) -> dict:
         """Converts the config to a standard dictionary for the model wrapper."""

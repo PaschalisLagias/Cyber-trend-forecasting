@@ -1,10 +1,12 @@
 # Standard library imports
 import os
 import pickle
+import sys
+from pathlib import Path
 
 # Third-party libraries
 import numpy as np
-import torch
+# import torch
 from torch.utils.data import Dataset
 
 # Local application imports
@@ -165,9 +167,22 @@ if __name__ == '__main__':
 
     # --- Example: Loading pre-processed data ---
     # This is the standard and recommended way to use this class.
-    # Assume pre-processed files exist in '../../data/processed_graph'
+    # Assume pre-processed files exist in '../../data/processed_graph
     
-    data_directory = '../../data/processed_graph'
+    # Process
+    # 1. Add project root to path so we can import the config
+    # (Uses the 'sys' and 'Path' you imported at the top)
+    current_dir = Path(__file__).resolve().parent
+    project_root = current_dir.parent.parent
+    sys.path.append(str(project_root))
+
+    # 2. Import the Config (after sys.path.appended)
+    from Transformer_Pipeline.Cyber_Trend_Graph_Config import PDFormerConfig
+
+    # 3. get data
+    config = PDFormerConfig()
+    data_directory = config.processed_data_dir
+
     try:
         print("\nAttempting to load 'train' split from pre-processed files...")
         train_dataset_loaded = CyberThreatGraphDataset(data_dir=data_directory, split='train')
