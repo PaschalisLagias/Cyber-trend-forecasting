@@ -155,10 +155,6 @@ class PDFormerModel(nn.Module):
             config_dict['add_time_in_day'] = False
             config_dict['add_day_in_week'] = False
         # -------------------------------------------------------------
-
-        # Instantiate the original PDFormer model
-        self.pdformer_engine = PDFormer(config=config_dict, 
-                                        data_feature=data_feature)
                 
         # Instantiate the original PDFormer model from the submodule
         # We pass it the config and the dictionary of pre-computed data features.
