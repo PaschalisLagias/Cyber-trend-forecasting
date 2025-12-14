@@ -2,6 +2,8 @@
 import os
 import pickle
 import argparse # Added for command-line flag
+import sys
+from pathlib import Path
 
 # Import Third-party imports
 import pandas as pd
@@ -15,8 +17,17 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from fastdtw import fastdtw
 from tslearn.clustering import TimeSeriesKMeans
 
-# Local imports - using project filename conventions
+# Local imports
 from .Load_Data import load_cyber_threat_data
+
+# ---------------------------------------------------------
+# PATH SETUP: Allow importing from Transformer_Pipeline
+# ---------------------------------------------------------
+current_dir = Path(__file__).resolve().parent
+project_root = current_dir.parent.parent
+sys.path.append(str(project_root))
+
+from Transformer_Pipeline.Cyber_Trend_Graph_Config import PDFormerConfig
 
 # ------------------- Preprocessing Functions -------------------
 
@@ -458,24 +469,22 @@ def main():
                         help="Generate expensive outputs required by PDFormer (DTW, Clustering).")
     args = parser.parse_args()
 
-    # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    # --- Load Configuration from config---
+    config = PDFormerConfig()
     
-    # Path handling for sibling directories
-    # Assumes structure: Transformer_Pipeline/Preprocessing/ and Data_Preparation/
-    RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
-    OUTPUT_DIR = os.path.join(SCRIPT_DIR, '../../Processed_Data/graph')
+    # 1. Paths (From Config)
+    RAW_DATA_FILE = config.raw_data_path
+    OUTPUT_DIR = config.processed_data_dir
 
-    # --- Experimental Settings [Source: Paper Section 3.5] ---
-    # "partitioned the dataset into three distinct subsets: 43% for training, 30% for validation, and 27% for testing"
-    TRAIN_SPLIT = 0.43
-    VAL_SPLIT = 0.30
-    # Test Split is implicitly 0.27 (remainder)
-
-    # "model's input comprises 10 months of historical data... output encompasses forecasts for the subsequent 36 months"
-    WINDOW_SIZE = 10
-    FORECAST_HORIZON = 36
+    # 2. Experimental Settings (From Config)
+    TRAIN_SPLIT = config.train_split
+    VAL_SPLIT = config.val_split
     
+    # Note: Config uses 'input_window' and 'output_window' naming
+    WINDOW_SIZE = config.input_window       
+    FORECAST_HORIZON = config.output_window 
+
+    # 3. Local Constants (Not currently in Config)
     CORRELATION_THRESHOLD = 0.7
     N_CLUSTERS = 16 
 
@@ -485,6 +494,8 @@ def main():
         print(f"Created output directory: {OUTPUT_DIR}")
 
     print(f"--- Configuration ---")
+    print(f"Source Data: {RAW_DATA_FILE}")
+    print(f"Output Dir:  {OUTPUT_DIR}")
     print(f"Window Size: {WINDOW_SIZE} months")
     print(f"Forecast Horizon: {FORECAST_HORIZON} months")
     print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT+VAL_SPLIT):.0%}")
@@ -496,8 +507,6 @@ def main():
         return
     
     # --- Step 1.2: Double Exponential Smoothing ---
-    # The paper explicitly mentions using DES with alpha=0.1 (Section 4.1 caption)
-    # Applied BEFORE splitting to ensure the trend is captured cleanly
     df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
 
     # --- Step 1.3: Split Data ---
@@ -514,7 +523,6 @@ def main():
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     
-    # Check if windowing failed (e.g., if data was too short for the large horizon)
     if X_train is None: 
         print("Aborting: Windowing failed.")
         return
