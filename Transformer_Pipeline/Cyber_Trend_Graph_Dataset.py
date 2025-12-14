@@ -116,19 +116,26 @@ class CyberThreatGraphDataset(Dataset):
     def get_static_features(self):
         """
         Loads and returns all the static (non-sample-based) graph data
-        that are required by the model's constructor.
+        required by the model's constructor. 
+        Calculates missing matrices (like Laplacian) if possible.
 
         Returns:
             dict[str, any]: A dictionary containing all the loaded static data
         """
         print(f"Loading static features from {self.data_dir}...")
+        
         # --- PROCESS ---
-        # Initialise an empty dictionary: static_features = {}
-        # Load the adjacency matrix (e.g., 'adj_mx.npy') -> static_features['adj_mx'] = ...
-        # Load the scaler object (e.g., 'scaler.pkl') -> static_features['scaler'] = ...
-        #
-        # --- PDFormer-Specific Data ---
-        print(f"Loading static features from {self.data_dir}...")
+        # 1. Initialise an empty dictionary: static_features = {}
+        # 2. Define a map of keys to filenames (e.g., 'adj_mx' -> 'adj_mx.npy').
+        # 3. Iterate through the map:
+        #    - If the file exists, load it (using pickle for .pkl, numpy for .npy).
+        #    - Store it in static_features.
+        # 4. Check for 'lap_mx' (Laplacian Matrix):
+        #    - If 'lap_mx' was NOT found on disk but 'adj_mx' WAS loaded:
+        #    - Calculate the Normalized Laplacian on the fly: L = I - D^(-1/2) * A * D^(-1/2).
+        #    - Store the calculated matrix in static_features['lap_mx'].
+        # 5. Return the populated dictionary.
+
         static_features = {}
         
         # List of potential files (Standard + PDFormer specific)
@@ -141,6 +148,7 @@ class CyberThreatGraphDataset(Dataset):
             'scaler': 'scaler.pkl'          # Saved Scaler object
         }
 
+        # 1. Load what exists on disk
         for key, filename in files_to_load.items():
             path = os.path.join(self.data_dir, filename)
             if os.path.exists(path):
@@ -150,11 +158,33 @@ class CyberThreatGraphDataset(Dataset):
                             static_features[key] = pickle.load(f)
                     else:
                         static_features[key] = np.load(path)
-                    # print(f" - Loaded {key}")
                 except Exception as e:
                     print(f"Warning: Failed to load {filename}: {e}")
             else:
-                print(f"Note: {filename} not found in directory.")
+                # print(f"Note: {filename} not found in directory.")
+                pass
+
+        # 2. Calculate Missing Laplacian (lap_mx) from Adjacency (adj_mx)
+        if 'lap_mx' not in static_features and 'adj_mx' in static_features:
+            print("Calculating missing Laplacian Matrix (lap_mx) from Adjacency...")
+            try:
+                adj = static_features['adj_mx']
+                
+                # normalized Laplacian: L = I - D^(-1/2) * A * D^(-1/2)
+                row_sum = np.sum(adj, axis=1)
+                
+                # Avoid division by zero
+                with np.errstate(divide='ignore'):
+                    d_inv_sqrt = np.power(row_sum, -0.5).flatten()
+                d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+                d_mat_inv_sqrt = np.diag(d_inv_sqrt)
+                
+                eye = np.eye(adj.shape[0])
+                lap_mx = eye - np.dot(np.dot(d_mat_inv_sqrt, adj), d_mat_inv_sqrt)
+                
+                static_features['lap_mx'] = lap_mx
+            except Exception as e:
+                print(f"Dataset WARNING: Failed to calculate lap_mx: {e}")
 
         return static_features
     
