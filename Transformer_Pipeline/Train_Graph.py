@@ -76,7 +76,8 @@ def main():
     parser = argparse.ArgumentParser(description="Main training script for PDFormer model.")
     
     # Path to the directory with processed data files
-    parser.add_argument('--data_dir', type=str, default='../Processed_Data/graph',
+    # parser.add_argument('--data_dir', type=str, default='../Processed_Data/Graph',
+    parser.add_argument('--data_dir', type=str, default=config.processed_data_dir,
                         help="Path to the directory with processed data files.")
     
     # Overrides for hyperparameters
