@@ -9,10 +9,10 @@ from torch.utils.data import DataLoader
 from Cyber_Trend_Graph_Dataset import Cyber_Trend_Graph_Dataset
 from Models.PDFormer_Wrapper import PDFormer  # Assuming class name is PDFormer
 from Utils.Metrics import calculate_all_metrics, calculate_gap
+from Cyber_Trend_Graph_Config import config
 
 # Configuration
-CONFIG_PATH = 'Cyber_Trend_Graphy_Config.json'  # Matches your file list spelling
-MODEL_PATH = 'best_model_graph.pth'             # Assumes this name from training
+MODEL_PATH = 'best_model_graph.pth'   
 RESULTS_DIR = 'Results'
 
 def evaluate():
@@ -21,9 +21,9 @@ def evaluate():
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR)
         
-    print(f"--- Loading Configuration from {CONFIG_PATH} ---")
-    with open(CONFIG_PATH, 'r') as f:
-        config = json.load(f)
+    # print(f"--- Loading Configuration from {CONFIG_PATH} ---")
+    # with open(CONFIG_PATH, 'r') as f:
+    #     config = json.load(f)
 
     # 2. Load Test Data
     print("--- Loading Test Dataset ---")
@@ -53,10 +53,8 @@ def evaluate():
     with torch.no_grad():
         for batch_idx, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device)
-            
             # Forward pass
             output = model(data)
-            
             # Move to CPU and numpy
             all_preds.append(output.cpu().numpy())
             all_trues.append(target.cpu().numpy())
@@ -109,12 +107,25 @@ def evaluate():
     print(results_df)
     print(f"Saved results table to {csv_path}")
 
-    # 7. Save Raw Predictions for visualisation
-    print("--- Saving Raw Predictions ---")
+    # 7. Save Raw Data & Column Names for Visualization
+    print("--- Saving Raw Predictions & Metadata ---")
     np.save(os.path.join(RESULTS_DIR, 'predictions.npy'), preds_unscaled)
     np.save(os.path.join(RESULTS_DIR, 'ground_truth.npy'), trues_unscaled)
-    print(f"Saved .npy files to {RESULTS_DIR}/ for visualization.") 
-    print(f"Saved plots to {RESULTS_DIR}/")
+    
+    # Try to fetch column names from dataset, or fallback if not available
+    if hasattr(test_dataset, 'columns'):
+        col_names = list(test_dataset.columns)
+    elif hasattr(test_dataset, 'data') and hasattr(test_dataset.data, 'columns'):
+        col_names = list(test_dataset.data.columns)
+    else:
+        # Fallback: Load the CSV header just to get names if dataset doesn't expose them
+        df_head = pd.read_csv(config['data_path'], nrows=0)
+        col_names = list(df_head.columns)[1:] # Skip 'Date' usually
+        
+    with open(os.path.join(RESULTS_DIR, 'column_names.json'), 'w') as f:
+        json.dump(col_names, f)
+        
+    print(f"Saved metadata to {RESULTS_DIR}/column_names.json")
 
 if __name__ == "__main__":
     evaluate()
