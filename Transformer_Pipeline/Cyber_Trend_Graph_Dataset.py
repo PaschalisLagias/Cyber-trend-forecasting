@@ -173,7 +173,7 @@ if __name__ == '__main__':
     # 1. Add project root to path so we can import the config
     # (Uses the 'sys' and 'Path' you imported at the top)
     current_dir = Path(__file__).resolve().parent
-    project_root = current_dir.parent.parent
+    project_root = current_dir.parent
     sys.path.append(str(project_root))
 
     # 2. Import the Config (after sys.path.appended)
