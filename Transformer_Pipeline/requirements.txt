@@ -1,34 +1,34 @@
 # --- Core Deep Learning & Frameworks ---
-torch==1.10.1
-torchvision>=0.11.2  # Added for VisionTS pipeline
-tensorboard==2.4.1
-protobuf==3.20.0
+torch>=1.10.0
+torchvision>=0.11.2
+tensorboard>=2.4.1
+protobuf>=3.20.0
 
 # --- Data Manipulation & Math ---
-numpy==1.21.2
-pandas==1.1.5
-scipy==1.7.3
-networkx==2.5.1
+numpy>=1.21.0,<2.0     # Critical: <2.0 prevents breaking changes in new NumPy
+pandas>=1.3.0
+scipy>=1.7.3
+networkx>=2.5.1
 
 # --- Machine Learning & Statistics ---
-scikit-learn==0.24.0
-statsmodels==0.13.1  # Required for Double Exponential Smoothing
-hyperopt==0.2.5
-ray==1.4.1
+scikit-learn>=0.24.0
+statsmodels>=0.13.1
+hyperopt>=0.2.5
+ray>=1.4.1
 
 # --- Time-Series & Graph Specific ---
-fastdtw==0.3.4       # Required for PDFormer DTW Matrix
-tslearn==0.5.2       # Required for PDFormer Clustering
-nltk==3.2.4
+fastdtw>=0.3.4
+tslearn>=0.5.2
+nltk>=3.2.4
 
-# --- Visualization (Added for Notebooks) ---
+# --- Visualization ---
 matplotlib>=3.4.0
 seaborn>=0.11.0
 
 # --- Development & Utilities ---
-tqdm==4.60.0
-tabulate==0.8.9
-pytest==3.2.1
-flake8==3.3.0
-pep8-naming==0.4.1
-wandb>=0.12.0        # Added for experiment tracking in Train scripts
+tqdm>=4.60.0
+tabulate>=0.8.9
+pytest>=3.2.1
+flake8>=3.3.0
+pep8-naming>=0.4.1
+wandb>=0.12.0
