@@ -4,183 +4,151 @@ import os
 from dataclasses import asdict
 
 # Third-party imports
+import torch
 import torch.nn as nn
+import numpy as np
 
 # --- Add Paths to System ---
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Get the directory of the current script (Transformer_Pipeline/Models)
+if "__file__" in globals():
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+else:
+    SCRIPT_DIR = os.getcwd()
+
+# Project Root is two levels up (../../)
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
 
-# 1. Add Project Root (for standard imports)
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# 2. Add 'Transformers/Graph_Transformer' (The Submodule Root)
-# Allows the PDFormer files to run "from libcity.model..." without crashing.
+# Add the Graph Transformer submodule to path
 submodule_root = os.path.join(PROJECT_ROOT, 'Transformers', 'Graph_Transformer')
 if submodule_root not in sys.path:
     sys.path.append(submodule_root)
 # --- End Path Setup ---
 
-
 # Local imports
-# import the original PDFormer from the submodule
 try:
     from Transformers.Graph_Transformer.libcity.model.traffic_flow_prediction.PDFormer import PDFormer
 except ImportError as e:
     print(f"Error: Could not import PDFormer from submodule.")
-    print(f"Debug: Tried to find it in: {submodule_root}")
-    print("Please ensure the submodule is initialised: `git submodule update --init --recursive`")
     raise e
 
 
-class PDFormerModel(nn.Module):
+class PDFormer_Wrapper(nn.Module):
     """
-    A PyTorch nn.Module wrapper for the PDFormer model.
-
-    This class acts as a clean, standard interface between our training
-    pipeline and the complex, config-driven PDFormer model which lives in
-    the submodule.
-
-    It handles the complex initialisation of the PDFormer "engine" and 
-    ensures its forward pass is compatible with a standard PyTorch training loop.
-
-    --- IMPORTANT: PREDICTION VS. LOSS ---
-    The original PDFormer class has its own `.calculate_loss()` 
-    method. This wrapper class intentionally **IGNORES** that method.
-
-    Our `forward()` method (below) is designed to call the class's 
-    `.predict()` method, which returns only the raw prediction tensor.
-    We then calculate the loss **externally** in our `Cyber_Trend_Train.py` 
-    script using standard PyTorch functions (nn.MSELoss() & nn.L1Loss()),
-    which is a cleaner, more modular, and more flexible design.
+    A PyTorch Wrapper for the PDFormer model.
+    It handles Config translation, Input reshaping, and critical bug fixes.
     """
 
     def __init__(self, model_config, data_feature):
         """
         Initialises the PDFormer wrapper and the underlying engine.
-
-        Args:
-            model_config (dict): A dictionary of model hyperparameters 
-                                 (e.g., embed_dim, enc_depth, input_window). 
-                                 This is the 'config' object from the original framework,
-                                 which we will build in our Train.py script.
-            data_feature (dict): A dictionary of all static data artifacts 
-                                 (e.g., adj_mx, dtw_matrix, sh_mx, scaler, num_nodes) 
-                                 loaded by Graph_Dataset.get_static_features().
         """
         super().__init__()
 
-        # --- COMPATIBILITY FIX ---
-        # The 'libcity' library expects 'config' to be a Dictionary (so it can use .get()).
-        # Our pipeline uses a modern Dataclass. We must convert it here.
+        # --- 1. CONFIG PREPARATION ---
         if hasattr(model_config, '__dataclass_fields__'):
             config_dict = asdict(model_config)
         elif isinstance(model_config, dict):
             config_dict = model_config
         else:
-            # Fallback for other object types
             config_dict = model_config.__dict__
 
-        # -------------------------------------------------------------
-        # --- SAFETY CHECK: Force num_nodes to match Data Shape ---
-        # -------------------------------------------------------------
-        # This prevents the [1,1] vs [1231,1231] mismatch error by ensuring
-        # the config dictionary matches the actual adjacency matrix.
+        # --- 2. CONFIG FIXES ---
+        # Ensure num_nodes matches the actual data
         if 'adj_mx' in data_feature:
             real_node_count = data_feature['adj_mx'].shape[0]
-            
-            # 1. Update Config
             config_dict['num_nodes'] = real_node_count
             config_dict['num_vertex'] = real_node_count
-            
-            # 2. Update Data Feature (Some models look here instead of config)
             data_feature['num_nodes'] = real_node_count
-            
-            print(f"Wrapper: Forced config num_nodes to {real_node_count}")
-        else:
-            print("Wrapper WARNING: 'adj_mx' not found in data_feature!")
-        # -------------------------------------------------------------    
 
-        # -------------------------------------------------------------
-        # --- TYPE FIX: Convert pattern_keys to Numpy ---
-        # -------------------------------------------------------------
-        # The library 'PDFormer.py' (line 382) explicitly calls torch.from_numpy(),
-        # so it will crash if we feed it a Tensor. We must downgrade it to Numpy here.
-        if 'pattern_keys' in data_feature:
-            pk = data_feature['pattern_keys']
-            # Check if it is a Tensor (using string check avoids importing torch if not needed)
-            if 'Tensor' in str(type(pk)): 
-                data_feature['pattern_keys'] = pk.detach().cpu().numpy()
-                print("Wrapper: Converted pattern_keys from Tensor to Numpy for compatibility.")
-
-
-        # -------------------------------------------------------------
-        # --- SHAPE FIX: Update s_attn_size from pattern_keys ---
-        # -------------------------------------------------------------
-        if 'pattern_keys' in data_feature:
-            pk = data_feature['pattern_keys']
-            # pk shape is likely (num_patterns, vector_dim, output_dim)
-            # e.g., (16, 10, 1). The middle dimension (10) is the s_attn_size.
-            
-            # Use .shape if it's a tensor/array, otherwise assume list
-            pk_shape = pk.shape if hasattr(pk, 'shape') else np.array(pk).shape
-            
-            # The dimension mismatch was 10 vs 3. 10 is at index 1 of the shape [16, 10, 1]
-            real_s_attn_size = pk_shape[1]
-            
-            # Check if config needs updating
-            current_s_attn = config_dict.get('s_attn_size', 'Unknown')
-            
-            if current_s_attn != real_s_attn_size:
-                print(f"Wrapper: Overriding s_attn_size from {current_s_attn} to {real_s_attn_size}")
-                config_dict['s_attn_size'] = real_s_attn_size
-        # -------------------------------------------------------------
-
-
-        # -------------------------------------------------------------
-        # --- FEATURE FIX: Disable Time/Day Embeddings ---
-        # -------------------------------------------------------------
-        # The model defaults to expecting input shape [B, T, N, feature_dim + 2].
-        # It tries to read "Time of Day" at index [feature_dim].
-        # Your data is [B, T, N, 1], so index 1 doesn't exist.
-        # We must disable these flags to prevent the IndexError.
-        
-        # Check if feature_dim is 1 (or default to 1)
+        # Fix Feature Flags
         f_dim = config_dict.get('feature_dim', 1)
-        
-        # If we have 1 feature, we almost certainly lack the extra time channels
-        # (unless feature_dim was explicitly set to include them, which is rare).
         if f_dim == 1:
-            print("Wrapper: Disabling 'add_time_in_day' and 'add_day_in_week' (Data lacks time channels).")
             config_dict['add_time_in_day'] = False
             config_dict['add_day_in_week'] = False
-        # -------------------------------------------------------------
-                
-        # Instantiate the original PDFormer model from the submodule
-        # We pass it the config and the dictionary of pre-computed data features.
+
+        # --- 3. PATTERN KEYS FIX (CRITICAL TYPE CAST) ---
+        if 'pattern_keys' in data_feature:
+            pk = data_feature['pattern_keys']
+            # Ensure it is numpy
+            if 'Tensor' in str(type(pk)): 
+                pk = pk.detach().cpu().numpy()
+            
+            # FORCE FLOAT32 to avoid "Double vs Float" errors
+            data_feature['pattern_keys'] = pk.astype(np.float32)
+
+            # Fix s_attn_size based on pattern_keys shape
+            pk_shape = pk.shape
+            real_s_attn_size = pk_shape[1]
+            config_dict['s_attn_size'] = real_s_attn_size
+
+        # --- 4. LAPLACIAN MATRIX SETUP ---
+        if 'lap_mx' in data_feature:
+            lap_np = data_feature['lap_mx']
+            
+            # Register as buffer (Moves to GPU automatically)
+            # Ensure FLOAT32 here as well
+            self.register_buffer(
+                'lap_mx', 
+                torch.tensor(lap_np, dtype=torch.float32)
+            )
+            self.needed_lap_dim = lap_np.shape[1]
+        else:
+            self.lap_mx = None
+            self.needed_lap_dim = 8  # Default fallback
+
+        # --- 5. INSTANTIATE ENGINE ---
         self.pdformer_engine = PDFormer(config=config_dict, 
                                         data_feature=data_feature)
-        print("PDFormer engine initialised successfully.")
+
+        # --- 6. EXECUTE "SEARCH AND DESTROY" PATCH ---
+        if self.lap_mx is not None:
+            self._patch_model_layers(self.pdformer_engine, self.needed_lap_dim)
+
+    def _patch_model_layers(self, module, needed_dim):
+        """
+        Recursively searches for 'embedding_lap_pos_enc' and replaces it 
+        if the dimension doesn't match the data.
+        """
+        did_patch = False
+        for name, child in module.named_modules():
+            if "embedding_lap_pos_enc" in name and isinstance(child, nn.Linear):
+                current_dim = child.in_features
+                if current_dim != needed_dim:
+                    # Create the correct layer
+                    new_layer = nn.Linear(needed_dim, child.out_features)
+                    new_layer.to(child.weight.device) 
+                    self._set_module_by_name(module, name, new_layer)
+                    did_patch = True
+        
+        if did_patch:
+            # print("Wrapper: Patched Laplacian Embedding Layer dimensions.")
+            pass
+
+    def _set_module_by_name(self, base_module, name, new_module):
+        levels = name.split('.')
+        parent = base_module
+        for level in levels[:-1]:
+            parent = getattr(parent, level)
+        setattr(parent, levels[-1], new_module)
 
     def forward(self, batch):
         """
-        Defines the forward pass of the model.
-
-        This method calls the original PDFormer's `.predict()` method 
-        to get the raw output predictions.
-
-        Args:
-            batch (libcity.data.batch.Batch): The custom Batch object 
-                provided by our DataLoader's collator function. 
-                This object contains the `batch['X']` data.
-
-        Returns:
-            torch.Tensor: The raw prediction tensor from the model.
+        Forward pass adapter.
+        Handles both Dict inputs (Train) and Tensor inputs (Eval).
         """
-        # Call the classes predict method.
-        # The .predict() method in the original code is just a wrapper
-        # around its own .forward() method.
-        # This returns the final prediction tensor.
-        y_predicted = self.pdformer_engine.predict(batch)
+        # --- ADAPTER FIX ---
+        # 1. If input is raw Tensor, wrap in Dict
+        if isinstance(batch, torch.Tensor):
+            batch = {'X': batch}
         
+        # 2. CRITICAL: Enforce Float32 on input data
+        # Data loaders often output Float64 (Double) which crashes the model
+        if 'X' in batch and batch['X'].dtype == torch.float64:
+            batch['X'] = batch['X'].float()
+
+        # Pass the Laplacian buffer explicitly
+        y_predicted = self.pdformer_engine.predict(batch, self.lap_mx)
         return y_predicted
