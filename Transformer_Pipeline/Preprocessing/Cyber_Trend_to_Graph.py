@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-# Imports from base paper 
+# Imports from base paper
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 # Imports for PDFormer transformations (uncomment when once final test complete)
@@ -23,31 +23,31 @@ from .Load_Data import load_cyber_threat_data
 def apply_double_exponential_smoothing(df, alpha=0.1, beta=0.1):
     """
     Applies Double Exponential Smoothing (Holt's Linear Trend) to the dataframe.
-    
+
     Args:
         df (pd.DataFrame): Input data (Time x Nodes).
         alpha (float): Smoothing factor for the level (0 < alpha < 1).
         beta (float): Smoothing factor for the trend (0 < beta < 1).
-        
+
     Returns:
         pd.DataFrame: Smoothed data with the same shape and index.
     """
     print(f"\n--- Applying Double Exponential Smoothing (alpha={alpha}, beta={beta}) ---")
-    
+
     df_smoothed = df.copy()
-    
+
     # Apply to each column (node) independently
     # We use a simple loop because statsmodels operates on 1D series
     success_count = 0
-    
+
     for col in df.columns:
         try:
             # Holt's Linear Trend method
             # initialization_method='estimated' is robust for various data shapes
             model = ExponentialSmoothing(
-                df[col], 
-                trend='add', 
-                seasonal=None, 
+                df[col],
+                trend='add',
+                seasonal=None,
                 initialization_method='estimated'
             )
             fit = model.fit(smoothing_level=alpha, smoothing_trend=beta, optimized=False)
@@ -55,7 +55,7 @@ def apply_double_exponential_smoothing(df, alpha=0.1, beta=0.1):
             success_count += 1
         except Exception as e:
             print(f"Warning: Could not smooth column '{col}': {e}. Keeping raw data.")
-            
+
     print(f"Smoothed {success_count}/{len(df.columns)} columns.")
     return df_smoothed
 
@@ -111,12 +111,12 @@ def define_graph_structure(train_df, correlation_threshold, output_dir):
 
     # Calculate correlation based only on training data to avoid leakage
     corr_matrix = train_df.corr()
-    
+
     # Create adjacency: 1 if correlation > threshold, else 0
     adj_matrix = (np.abs(corr_matrix) > correlation_threshold).astype(int)
     # Ensure diagonal is 1 (self-loops) - important for GNNs
     np.fill_diagonal(adj_matrix.values, 1)
-    
+
     # Save data
     adj_matrix_path = os.path.join(output_dir, 'adj_mx.npy')
     np.save(adj_matrix_path, adj_matrix.values)
@@ -145,20 +145,20 @@ def normalise_data(train_df, val_df, test_df, output_dir):
     # Transform train_df, val_df, and test_df using the fitted scaler -> train_scaled, val_scaled, test_scaled (NumPy arrays).
     # Save the fitted scaler object (using pickle) for later inverse transformation.
     print("\n--- Step 3: Normalising Data ---")
-    
+
     scaler = MinMaxScaler(feature_range=(0, 1))
-    
+
     # Fit ONLY on training data, transform all
     train_scaled = scaler.fit_transform(train_df)
     val_scaled = scaler.transform(val_df)
     test_scaled = scaler.transform(test_df)
-    
+
     # Save the scaler so we can reverse this later for predictions
     scaler_path = os.path.join(output_dir, 'scaler.pkl')
     with open(scaler_path, 'wb') as f:
         pickle.dump(scaler, f)
-    
-    print(f"Scaler saved to {scaler_path}") 
+
+    print(f"Scaler saved to {scaler_path}")
     print("Data normalisation complete")
     # Return 3 matrices and 1 scaler
     return train_scaled, val_scaled, test_scaled, scaler
@@ -176,7 +176,7 @@ def create_sliding_windows(data_scaled, window_size, forecast_horizon):
     tuple[np.ndarray, np.ndarray]: A tuple containing:
             - X (Input): Shape (num_samples, window_size, num_nodes, 1)
             - y (Target): Shape (num_samples, forecast_horizon, num_nodes, 1)
-            
+
             Where 'num_samples' is calculated as:
             total_time_steps - window_size - forecast_horizon + 1
     """
@@ -188,21 +188,21 @@ def create_sliding_windows(data_scaled, window_size, forecast_horizon):
     # Format y with shape (samples, forecast_horizon, num_nodes, num_features=1).
     # num_nodes will be data_scaled.shape[1].
     print("\n--- Step 4: Windowing Data ---")
-    
+
     num_samples = data_scaled.shape[0] - window_size - forecast_horizon + 1
     num_nodes = data_scaled.shape[1]
-    
+
     # Initialise arrays
     # Shape: (samples, window_size, nodes, features=1)
     X = np.zeros((num_samples, window_size, num_nodes, 1))
     y = np.zeros((num_samples, forecast_horizon, num_nodes, 1))
-    
+
     for i in range(num_samples):
         # Input: from i to i+window
         X[i, :, :, 0] = data_scaled[i : i + window_size]
         # Target: from i+window to i+window+horizon
         y[i, :, :, 0] = data_scaled[i + window_size : i + window_size + forecast_horizon]
-        
+
     print(f"Generated shapes: X={X.shape}, y={y.shape}")
     return X, y
 
@@ -231,12 +231,12 @@ def compute_dtw_matrix(train_df, output_dir):
     # Dull training history to calculate the distance between nodes
     data = train_df.values  # Shape: (time_steps, num_nodes)
     num_nodes = data.shape[1]
-    
+
     # InitialiSe zero matrix
     dtw_matrix = np.zeros((num_nodes, num_nodes))
-    
+
     print(f" - Calculating DTW for {num_nodes} nodes")
-    
+
     # Nested loop to compare every node against every other node
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
@@ -244,14 +244,14 @@ def compute_dtw_matrix(train_df, output_dir):
             dist, _ = fastdtw(data[:, i], data[:, j], radius=1)
             dtw_matrix[i, j] = dist
             dtw_matrix[j, i] = dist # Symmetric
-            
+
     print(" - DTW calculation complete.")
-    
+
     # Save
     save_path = os.path.join(output_dir, 'dtw_matrix.npy')
     np.save(save_path, dtw_matrix)
     print(f"Saved dtw_matrix to {save_path}")
-    
+
     return dtw_matrix
 
 
@@ -278,33 +278,33 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     # This might be computed from a different source in their 'rel' file.
     # For our purpose, we might adapt this or use the adj_matrix itself.
     # Placeholder: save a copy or computed version as sd_mx.npy.
-    
+
     num_nodes = adj_matrix.shape[0]
-    
+
     # Initialize Hop Matrix (sh_mx)
     # 0 for diagonal, 1 for edges, 511 (arbitrary infinity) for non-edges
     sh_mx = np.full((num_nodes, num_nodes), 511, dtype=int)
-    
+
     # Set existing edges to 1
     sh_mx[adj_matrix == 1] = 1
-    
+
     # Set diagonal to 0
     np.fill_diagonal(sh_mx, 0)
-    
+
     # Floyd-Warshall Algorithm to find shortest paths
     # (O(N^3) complexity - fast enough for < 200 nodes)
     for k in range(num_nodes):
         for i in range(num_nodes):
             for j in range(num_nodes):
                 sh_mx[i, j] = min(sh_mx[i, j], sh_mx[i, k] + sh_mx[k, j])
-                
+
     # Save Hop Matrix
     sh_path = os.path.join(output_dir, 'sh_mx.npy')
     np.save(sh_path, sh_mx)
     print(f"Saved sh_mx (Hops) to {sh_path}")
 
     # Initialise Distance Matrix (sd_mx)
-    # In PDFormer, if there are no physical distances, we use the Hop count 
+    # In PDFormer, if there are no physical distances, we use the Hop count
     # or the inverted adjacency weights. Here we will mirror sh_mx for simplicity
     # unless you have a specific physical distance metric.
     sd_mx = sh_mx.astype(float)
@@ -337,15 +337,15 @@ def compute_cluster_keys(X_train, n_clusters, output_dir):
     # Save the pattern_keys.npy to the output_dir.
     # Return the pattern_keys.
 
-    
+
     # X_train shape: (samples, window_size, num_nodes, 1)
     # ClusterING the "Shapes" of traffic
     # Combine all samples and all nodes to find atomic patterns
     # Reshape to: (Total_Series, Window_Size, 1)
-    
+
     samples, window, nodes, feats = X_train.shape
     X_reshaped = X_train.transpose(0, 2, 1, 3).reshape(-1, window, feats)
-    
+
     # If dataset is huge, we sub-sample for speed (optional)
     # e.g., take random 10,000 samples if X_reshaped.shape[0] > 10000
     if X_reshaped.shape[0] > 10000:
@@ -355,19 +355,19 @@ def compute_cluster_keys(X_train, n_clusters, output_dir):
         X_for_clustering = X_reshaped
 
     print(f" - Clustering {X_for_clustering.shape[0]} time series into {n_clusters} patterns...")
-    
+
     # Use k-Means with Euclidean distance (faster) or DTW (better but slower)
     km = TimeSeriesKMeans(n_clusters=n_clusters, metric="euclidean", max_iter=10, verbose=True)
     km.fit(X_for_clustering)
-    
+
     # The keys are the centroids of the clusters
     pattern_keys = km.cluster_centers_  # Shape: (n_clusters, window, 1)
-    
+
     # Save
     keys_path = os.path.join(output_dir, 'pattern_keys.npy')
     np.save(keys_path, pattern_keys)
     print(f"Saved pattern_keys to {keys_path}")
-    
+
     return pattern_keys
 
 
@@ -404,46 +404,46 @@ def save_processed_data(output_dir, X_train, y_train, X_val, y_val, X_test, y_te
     # If PDFormer-specific outputs are provided (not None), save them as .npy files.
 
     # --- Generic Outputs ---
-    
+
     # 1. Save Windowed Data (.npz)
     # We use 'x' and 'y' keys so the Dataset class can find them easily later
     train_path = os.path.join(output_dir, 'train.npz')
     val_path = os.path.join(output_dir, 'val.npz')
     test_path = os.path.join(output_dir, 'test.npz')
-    
+
     np.savez_compressed(train_path, x=X_train, y=y_train)
     np.savez_compressed(val_path, x=X_val, y=y_val)   # Fixed: x_val -> X_val
     np.savez_compressed(test_path, x=X_test, y=y_test) # Fixed: x_test -> X_test
-    
+
     print(f"Saved .npz files to {output_dir}")
 
     # 2. Save Node Names
     node_names_path = os.path.join(output_dir, 'node_names.npy')
     np.save(node_names_path, node_names)
-    
+
     # 3. Save Adjacency Matrix
     if adj_matrix is not None:
         np.save(os.path.join(output_dir, 'adj_mx.npy'), adj_matrix)
         print("Saved adj_mx.npy")
 
     # --- PDFormer-Specific Outputs ---
-    
+
     if dtw_matrix is not None:
         np.save(os.path.join(output_dir, 'dtw_matrix.npy'), dtw_matrix)
         print("Saved dtw_matrix.npy")
-        
+
     if sh_mx is not None:
         np.save(os.path.join(output_dir, 'sh_mx.npy'), sh_mx)
         print("Saved sh_mx.npy")
-        
+
     if sd_mx is not None:
         np.save(os.path.join(output_dir, 'sd_mx.npy'), sd_mx)
         print("Saved sd_mx.npy")
-        
+
     if pattern_keys is not None:
         np.save(os.path.join(output_dir, 'pattern_keys.npy'), pattern_keys)
         print("Saved pattern_keys.npy")
-        
+
     print("Saving complete")
 
 # ------------------- Main function -------------------
@@ -460,7 +460,7 @@ def main():
 
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    
+
     # Path handling for sibling directories
     # Assumes structure: Transformer_Pipeline/Preprocessing/ and Data_Preparation/
     RAW_DATA_FILE = os.path.join(SCRIPT_DIR, '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv')
@@ -475,9 +475,9 @@ def main():
     # "model's input comprises 10 months of historical data... output encompasses forecasts for the subsequent 36 months"
     WINDOW_SIZE = 10
     FORECAST_HORIZON = 36
-    
+
     CORRELATION_THRESHOLD = 0.7
-    N_CLUSTERS = 16 
+    N_CLUSTERS = 16
 
     # Create output directory
     if not os.path.exists(OUTPUT_DIR):
@@ -491,14 +491,14 @@ def main():
 
     # --- Step 1.1: Load Data ---
     df_raw = load_cyber_threat_data(RAW_DATA_FILE)
-    if df_raw is None: 
+    if df_raw is None:
         print("Aborting: Could not load data.")
         return
-    
+
     # --- Step 1.2: Double Exponential Smoothing ---
     # The paper explicitly mentions using DES with alpha=0.1 (Section 4.1 caption)
     # Applied BEFORE splitting to ensure the trend is captured cleanly
-    df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
+    df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)
 
     # --- Step 1.3: Split Data ---
     train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
@@ -513,9 +513,9 @@ def main():
     X_train, y_train = create_sliding_windows(train_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
-    
+
     # Check if windowing failed (e.g., if data was too short for the large horizon)
-    if X_train is None: 
+    if X_train is None:
         print("Aborting: Windowing failed.")
         return
 

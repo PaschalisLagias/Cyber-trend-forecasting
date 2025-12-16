@@ -15,23 +15,24 @@ This project approaches the forecasting problem using two different models to be
 ```
 Transformer_Pipeline/
 ├── Preprocessing/
-│   ├── Load_Data.py            
-│   ├── Cyber_Trend_to_Graph.py 
-│   └── Cyber_Trend_to_Image.py 
+│   ├── Load_Data.py
+│   ├── Cyber_Trend_to_Graph.py
+│   └── Cyber_Trend_to_Image.py
 ├── Models/
-│   └── PDFormer_Wrapper.py     
+│   └── PDFormer_Wrapper.py
+|   └── VisionTS_Wrapper.py
 ├── Cyber_Trend_Graph_Dataset.py
 ├── Cyber_Trend_Graphy_Config.json
-├── Cyber_Trend_Vision_Dataset.py   
-├── Cyber_Trend_Vision_Config.json             
+├── Cyber_Trend_Vision_Dataset.py
+├── Cyber_Trend_Vision_Config.json
 ├── Train_Graph.py
-├── Train_Vision.py                            
-├── Run_Pipeline.py             
-└── requirements.txt       
+├── Train_Vision.py
+├── Run_Pipeline.py
+└── requirements.txt
 ```
 ## Experimental Settings & Metrics
 
-To ensure a comparison with the benchmark paper (*Forecasting Cyber Threats and Pertinent Mitigation Technologies*), pipelines has following settings:
+To ensure a fair comparison with the benchmark paper (*Forecasting Cyber Threats and Pertinent Mitigation Technologies*), pipelines has following settings:
 
 * **Input Window**: 10 Months
 * **Forecast Horizon**: 36 Months
@@ -54,7 +55,7 @@ Here is a high-level overview of the files and folders in this pipeline:
     * **Key Scripts**:
         * `Load_Data.py`: Handles the specific `MMM-YY` date format parsing.
         * `Cyber_Trend_to_Graph.py`: Applies Double Exponential Smoothing (DES) and generates graph tensors (Graph Pipeline).
-        * `Cyber_Trend_to_Image.py`: Generates colourised 2D images (Vision Pipeline).
+        * `Cyber_Trend_to_Image.py`: Applies DES smoothing, creates sliding windows (no external normalisation).
 
 ### Dataset Script
 
@@ -65,11 +66,12 @@ The `Cyber_Trend_Graph_Dataset.py` script contains the core PyTorch Dataset clas
     * **Process**:
         * Loads the pre-processed, windowed data (`train.npz`) for a specific split.
         * `get_static_features()`: Loads and returns the dictionary of static artifacts (`adj_mx`, `dtw_matrix`) needed by the model constructor.
-* **`Cyber_Trend_Graph_Dataset.py`**
-    * **Purpose**: ....
+* **`Cyber_Trend_Image_Dataset.py`**
+    * **Purpose**:  PyTorch Dataset for the Vision pipeline following `Cyber_Trend_Graph_Dataset.py`.
     * **Process**:
-        * ...
-        * ...
+        *  Loads pre-processed `.npz` files.
+        * `get_static_features()`: Returns scaler and metadata for reference (not used by model).
+        * Returns `{"input": tensor, "target": tensor}` dictionaries with 3D tensors.
 
 
 ### Model Scripts
@@ -78,7 +80,11 @@ The Model subdirectory contains model architecture files, i.e., the wrapper for 
 
 * **`Models/` (Sub-directory)**
     * **Purpose**: Contains custom-written model architecture files.
-    * **Content**: `PDFormer_Wrapper.py` defines the `PDFormerModel` class, which wraps the complex internal engine and exposes a clean `forward()` method.
+    * **Content**:
+        * `PDFormer_Wrapper.py` defines the `PDFormerModel` class, which wraps the complex internal engine and exposes a clean `forward()` method.
+        * **`Models/VisionTS_Wrapper.py`** Wraps the VisionTS model from `Transformers/Visual_Transformer/` submodule.
+            * Handles `update_config()` for context/prediction length settings.
+            * VisionTS performs normalisation/denormalisation internally.
 
 ### Training Script
 
@@ -92,11 +98,11 @@ Main training scripts
         3.  Runs the optimisation loop.
         4.  Calculates global RSE/RAE metrics at the end of each epoch.
 * **`Train_Vision.py`**
-    * **Purpose**: ...
+    * **Purpose**: Training and evaluation for VisionTS model.
     * **Process**:
         1.  ...
         2.  ...
-        
+
 
 ### Pipeline Script
 
@@ -110,7 +116,7 @@ Main Pipeline script
         * Conditionally runs the correct preprocessing module (Graph or Vision).
         * Conditionally runs the correct training script.
 
-## How to Run the Pipeline 
+## How to Run the Pipeline
 
 **Verification (Recommended First Step)**
 To visualise data smoothing and verify tensor shapes interactively, run the notebook: `../Notebooks/Graph_Pipeline_Verification.ipynb`.
@@ -121,7 +127,8 @@ Run the preprocessing module from the project root:
 ```bash
 python -m Transformer_Pipeline.Preprocessing.Cyber_Trend_to_Graph --pdformer
 ```
-**2. Training Model and Log Results:** 
+
+**2. Training Model and Log Results:**
 
 Execute the pipeline script:
 
