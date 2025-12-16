@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from scipy.sparse.csgraph import shortest_path
 
 # Imports from base paper 
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -18,7 +19,11 @@ from fastdtw import fastdtw
 from tslearn.clustering import TimeSeriesKMeans
 
 # Local imports
-from .Load_Data import load_cyber_threat_data
+try:
+    from Transformer_Pipeline.Preprocessing.Load_Data import load_cyber_threat_data
+except ImportError:
+    # Fallback if running from within the folder directly
+    from Load_Data import load_cyber_threat_data
 
 # ---------------------------------------------------------
 # PATH SETUP: Allow importing from Transformer_Pipeline
@@ -70,34 +75,51 @@ def apply_double_exponential_smoothing(df, alpha=0.1, beta=0.1):
     print(f"Smoothed {success_count}/{len(df.columns)} columns.")
     return df_smoothed
 
-def split_data(df_raw, train_split, val_split):
+def split_data(df_raw, train_split, val_split, window_size):
     """
-    Splits the raw DataFrame chronologically into training, validation, and test sets.
+    Splits the raw DataFrame chronologically into training, validation, and test sets,
+    adding a 'lookback buffer' (overlap) to Val and Test so windowing doesn't lose data.
 
     Args:
         df_raw (pd.DataFrame): The raw DataFrame.
-        train_split (float): The proportion of data for the training set (e.g., 0.7).
-        val_split (float): The proportion of data for the validation set (e.g., 0.1).
+        train_split (float): The proportion of data for the training set.
+        val_split (float): The proportion of data for the validation set .
+        window_size (int): The number of past time steps (overlap) needed for the first window.
 
     Returns:
         tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: DataFrames for the training, validation, and test sets.
     """
     # --- PROCESS ---
     # Calculate split indices based on TRAIN_SPLIT and VAL_SPLIT proportions.
+    # Apply a lookback buffer (window_size) to the start of Val and Test sets.
     # Create train_df, val_df, test_df pandas DataFrames using iloc.
-    # Print the date ranges and sizes of each split for verification.
+    # Print the sizes of each split for verification.
     # --- CODE ---
-    print("\n--- Step 1: Splitting Data ---")
+    print("\n--- Step 1: Splitting Data (With Lookback Overlap) ---")
+    
     n = len(df_raw)
+    
+    # Calculate strict indices based on ratios
     train_end = int(n * train_split)
     val_end = int(n * (train_split + val_split))
 
+    # 1. Train: From start to cut point
     train_df = df_raw.iloc[:train_end]
-    val_df = df_raw.iloc[train_end:val_end]
-    test_df = df_raw.iloc[val_end:]
 
-    print(f"Train: {train_df.shape}, Val: {val_df.shape}, Test: {test_df.shape}")
-    print("Data splitting complete")
+    # 2. Val: Start at (train_end - window_size) so it has history from Train
+    val_start = max(0, train_end - window_size)
+    val_df = df_raw.iloc[val_start:val_end]
+
+    # 3. Test: Start at (val_end - window_size) so it has history from Val
+    test_start = max(0, val_end - window_size)
+    test_df = df_raw.iloc[test_start:]
+
+    print(f"Split Ratios: {train_split}/{val_split}/Remainder")
+    print(f"Overlap Buffer: {window_size} steps")
+    print(f"Train: {train_df.shape}")
+    print(f"Val:   {val_df.shape} (includes overlap)")
+    print(f"Test:  {test_df.shape} (includes overlap)")
+    
     return train_df, val_df, test_df
 
 
@@ -280,45 +302,47 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     """
     print("\n--- Step 4b: Computing Shortest Path Matrices (PDFormer) ---")
     # --- PROCESS ---
-    # Replicate the logic from PDFormerDataset's _load_rel method.
+    # Replicate the logic from PDFormerDataset's _load_rel method but optimized.
     # --- sh_mx (hop matrix) ---
-    # Initialise sh_mx from adj_matrix (1s for edges, 511 for no edge, 0 for diagonal).
-    # Use the Floyd-Warshall algorithm (3 nested loops) to find the shortest hop count.
+    # Initialise sh_mx from adj_matrix using SciPy's optimized C++ implementation.
+    # (Manual Floyd-Warshall O(N^3) is too slow for >200 nodes).
+    # Convert 'infinity' paths to 511 (PDFormer convention).
     # Save the resulting sh_mx.npy to the output_dir.
     # --- sd_mx (distance matrix) ---
-    # This might be computed from a different source in their 'rel' file.
-    # For our purpose, we might adapt this or use the adj_matrix itself.
-    # Placeholder: save a copy or computed version as sd_mx.npy.
-    
+    # Mirror sh_mx for simplicity unless physical distances exist.
+    # Save as sd_mx.npy.
+
     num_nodes = adj_matrix.shape[0]
+    print(f" - Calculating shortest paths for {num_nodes} nodes (Optimized)...")
+
+    # 1. Compute Shortest Path using SciPy (Dijkstra/Floyd-Warshall in C++)
+    # unweighted=True treats the graph as having hop distance 1 for all edges
+    # This replaces the 3 nested loops which would take ~1 hour for 1231 nodes
+    dist_matrix = shortest_path(csgraph=adj_matrix, directed=False, unweighted=True)
     
-    # Initialize Hop Matrix (sh_mx)
-    # 0 for diagonal, 1 for edges, 511 (arbitrary infinity) for non-edges
-    sh_mx = np.full((num_nodes, num_nodes), 511, dtype=int)
+    # 2. Format for PDFormer conventions
+    # PDFormer expects a specific 'infinity' value (511) for masking
+    sh_mx = dist_matrix.copy()
     
-    # Set existing edges to 1
-    sh_mx[adj_matrix == 1] = 1
+    # SciPy returns 'inf' for unconnected nodes; replace with 511
+    sh_mx[np.isinf(sh_mx)] = 511
+    # Also cap any very long paths at 511
+    sh_mx[sh_mx > 511] = 511
     
-    # Set diagonal to 0
+    # Ensure integer type and 0 diagonal
+    sh_mx = sh_mx.astype(int)
     np.fill_diagonal(sh_mx, 0)
     
-    # Floyd-Warshall Algorithm to find shortest paths
-    # (O(N^3) complexity - fast enough for < 200 nodes)
-    for k in range(num_nodes):
-        for i in range(num_nodes):
-            for j in range(num_nodes):
-                sh_mx[i, j] = min(sh_mx[i, j], sh_mx[i, k] + sh_mx[k, j])
-                
     # Save Hop Matrix
     sh_path = os.path.join(output_dir, 'sh_mx.npy')
     np.save(sh_path, sh_mx)
     print(f"Saved sh_mx (Hops) to {sh_path}")
 
-    # Initialise Distance Matrix (sd_mx)
+    # 3. Initialise Distance Matrix (sd_mx)
     # In PDFormer, if there are no physical distances, we use the Hop count 
-    # or the inverted adjacency weights. Here we will mirror sh_mx for simplicity
-    # unless you have a specific physical distance metric.
+    # or the inverted adjacency weights. Here we mirror sh_mx.
     sd_mx = sh_mx.astype(float)
+    
     sd_path = os.path.join(output_dir, 'sd_mx.npy')
     np.save(sd_path, sd_mx)
     print(f"Saved sd_mx (Distances) to {sd_path}")
@@ -510,7 +534,7 @@ def main():
     df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
 
     # --- Step 1.3: Split Data ---
-    train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
+    train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT, WINDOW_SIZE)
 
     # --- Step 2: Define Graph Structure ---
     adj_matrix = define_graph_structure(train_df, CORRELATION_THRESHOLD, OUTPUT_DIR)
