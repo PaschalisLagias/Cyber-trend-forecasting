@@ -23,7 +23,7 @@ if PROJECT_ROOT not in sys.path:
 # Local application imports
 from Cyber_Trend_Graph_Config import PDFormerConfig
 from Cyber_Trend_Graph_Dataset import CyberThreatGraphDataset
-from Models.PDFormer_Wrapper import PDFormerModel 
+from Models.PDFormer_Wrapper import PDFormer_Wrapper
 from Transformers.Graph_Transformer.libcity.data.batch import Batch 
 
 def pdformer_collate_fn(batch_list, feature_name):
@@ -73,6 +73,11 @@ def main():
     """
     
     # --- 1. Configuration Setup ---
+    
+    # Initialise Config first. Load Config from Python Class
+    config = PDFormerConfig()
+
+    # Setup Argument Parser
     parser = argparse.ArgumentParser(description="Main training script for PDFormer model.")
     
     # Path to the directory with processed data files
@@ -89,9 +94,6 @@ def main():
                         help="Override for batch size.")
     
     args = parser.parse_args()
-
-    # Load Config from Python Class
-    config = PDFormerConfig()
     
     # Apply Overrides from Command Line (Using the class method)
     # Ensure PDFormerConfig has this method, or manually override below
@@ -197,7 +199,7 @@ def main():
     # # -----------------------------------------------------
 
     # 4c. Initialise Model
-    model = PDFormerModel(model_config=config, data_feature=static_features).to(device)
+    model = PDFormer_Wrapper(model_config=config, data_feature=static_features).to(device)
     
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model initialised. Total trainable parameters: {total_params}")
