@@ -30,9 +30,9 @@ class CyberVisionTSConfig:
     load_pretrained: bool = True
 
     epochs: int = 10
-    batch_size: int = 1  # VisionTS expands to (batch * nvars) internally, keep small for 1231 features
+    batch_size: int = 32
     learning_rate: float = 1e-4
-    patience: int = 5
+    patience: int = 50
 
     context_window_size: int = 10
     pred_window_size: int = 36
