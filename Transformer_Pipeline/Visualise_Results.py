@@ -8,6 +8,7 @@ import matplotlib.dates as mdates
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta
+import re
 
 # --- Import Config ---
 current_dir = Path(__file__).resolve().parent
@@ -23,7 +24,7 @@ except ImportError:
 # ------------------- Helper Functions -------------------
 
 def exponential_smoothing(series, alpha=0.1):
-    """Smooths the series to remove noise (Paper visual style)."""
+    """Smooths the series to remove noise."""
     if len(series) == 0: return series
     result = [series[0]]
     for n in range(1, len(series)):
@@ -36,18 +37,30 @@ def normalise_series(series):
     if mx == 0: return series
     return series / mx
 
+def clean_string(s):
+    """Aggressive string cleaning for matching."""
+    s = str(s).lower().strip()
+    # Remove dataset-specific artifacts (Updated for 'Mentions')
+    s = s.replace('solution_', '').replace('_papers', '').replace('mentions', '')
+    # Replace separators with spaces
+    s = s.replace('-', ' ').replace('_', ' ')
+    # Remove common words that might confuse matching
+    s = s.replace('attack', '').strip()
+    return s
+
 def find_col_index(target_name, all_names):
-    """Fuzzy searches for a column name."""
-    if target_name in all_names:
-        return np.where(all_names == target_name)[0][0]
-    target_lower = target_name.lower()
-    for i, name in enumerate(all_names):
-        if target_lower == name.lower(): return i
-        if target_lower in name.lower(): return i
+    """Robust column search."""
+    clean_target = clean_string(target_name)
+    
+    for i, raw_name in enumerate(all_names):
+        clean_col = clean_string(raw_name)
+        # Exact or Substring match
+        if clean_target == clean_col or clean_target in clean_col or clean_col in clean_target:
+            if len(clean_target) > 1: return i
     return None
 
 def build_graph(file_name):
-    """Parses graph.csv (Col 0 = Threat, Col 1..N = Mitigations)."""
+    """Parses graph.csv."""
     graph = defaultdict(list)
     if not os.path.exists(file_name):
         print(f"Graph file not found at: {file_name}")
@@ -64,7 +77,7 @@ def build_graph(file_name):
     return graph
 
 def generate_date_labels(num_steps, end_year=2025, end_month=12):
-    """Generates chronological datetime objects ending at the specified date."""
+    """Generates chronological datetime objects."""
     dates = []
     current = datetime(end_year, end_month, 1)
     for _ in range(num_steps):
@@ -73,15 +86,47 @@ def generate_date_labels(num_steps, end_year=2025, end_month=12):
         current = first - timedelta(days=1)
     return list(reversed(dates))
 
-# ------------------- Gap Analysis Logic (Table 5) -------------------
+def save_table_as_image(df, title, output_dir):
+    """Saves a dataframe as a clean PNG image and LaTeX code."""
+    if df.empty: return
+    
+    # 1. Save LaTeX Code
+    latex_path = output_dir / f"{title}.tex"
+    with open(latex_path, 'w') as f:
+        f.write(df.to_latex(index=False, float_format="%.3f"))
+    
+    # 2. Save Image (Matplotlib Table)
+    fig, ax = plt.subplots(figsize=(10, len(df) * 0.5 + 1)) # Dynamic height
+    ax.axis('tight')
+    ax.axis('off')
+    
+    # Create the table
+    table = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center')
+    
+    # Style
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.5) # More padding
+    
+    # Header styling
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_text_props(weight='bold')
+            cell.set_facecolor('#f2f2f2')
+    
+    plt.title(title, fontsize=14, pad=10)
+    plt.tight_layout()
+    
+    img_path = output_dir / f"{title}.png"
+    plt.savefig(img_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Saved Table Image & LaTeX to: {img_path}")
+
+# ------------------- Gap Analysis Logic -------------------
 
 def generate_gap_tables(preds_window, col_names, target_groups, output_dir):
-    """
-    Calculates the 'Gap' (Threat - Solution) per year and classifies them.
-    Includes DEBUG prints to diagnose why tables might be empty.
-    """
-    print("\n--- Generating Gap Analysis Tables ---")
-    
+    """Calculates Gaps and generates tables."""
+    print("\n--- Generating Gap Analysis ---")
     n_months = preds_window.shape[0]
     
     def get_yearly_avgs(idx):
@@ -93,7 +138,6 @@ def generate_gap_tables(preds_window, col_names, target_groups, output_dir):
 
     strictly_widening = []
     overall_widening = []
-    debug_count = 0 
 
     for threat_name, solutions in target_groups.items():
         threat_idx = find_col_index(threat_name, col_names)
@@ -109,56 +153,32 @@ def generate_gap_tables(preds_window, col_names, target_groups, output_dir):
             gaps = [t - s for t, s in zip(t_years, s_years)]
             g1, g2, g3 = gaps
 
-            # DEBUG: Print first few calculations to see raw values
-            if debug_count < 10:
-                print(f"DEBUG: {threat_name} vs {sol_name} -> Gaps: {g1:.3f}, {g2:.3f}, {g3:.3f}")
-                debug_count += 1
+            entry = {
+                "Threat": threat_name, "PAT": sol_name,
+                "2023": round(g1, 3), "2024": round(g2, 3), "2025": round(g3, 3),
+            }
 
-            # Classification Logic
-            # Strictly Widening: Gap increases every year
             if g1 < g2 < g3:
-                strictly_widening.append({
-                    "Threat": threat_name,
-                    "PAT": sol_name,
-                    "2023": round(g1, 3),
-                    "2024": round(g2, 3),
-                    "2025": round(g3, 3),
-                    "Trend": "Strictly Widening"
-                })
-
-            # Overall Widening: End gap is larger than start gap
+                entry["Trend"] = "Strictly Widening"
+                strictly_widening.append(entry)
             elif g3 > g1:
-                overall_widening.append({
-                    "Threat": threat_name,
-                    "PAT": sol_name,
-                    "2023": round(g1, 3),
-                    "2024": round(g2, 3),
-                    "2025": round(g3, 3),
-                    "Trend": "Overall Widening"
-                })
+                entry["Trend"] = "Overall Widening"
+                overall_widening.append(entry)
 
     df_strict = pd.DataFrame(strictly_widening)
     df_overall = pd.DataFrame(overall_widening)
 
     if not df_strict.empty:
         df_strict = df_strict.sort_values(by="2025", ascending=False)
-        save_path = output_dir / "Strictly_Widening_Gaps.csv"
-        df_strict.to_csv(save_path, index=False)
-        print(f"Saved 'Strictly Widening' table to: {save_path}")
+        save_table_as_image(df_strict.head(10), "Strictly_Widening_Gaps", output_dir)
         print("\n--- Strictly Widening Gaps (Top 5) ---")
         print(df_strict.head(5).to_string(index=False))
-    else:
-        print("\nNote: No 'Strictly Widening' gaps found (Check DEBUG output above).")
 
     if not df_overall.empty:
         df_overall = df_overall.sort_values(by="2025", ascending=False)
-        save_path = output_dir / "Overall_Widening_Gaps.csv"
-        df_overall.to_csv(save_path, index=False)
-        print(f"Saved 'Overall Widening' table to: {save_path}")
+        save_table_as_image(df_overall.head(10), "Overall_Widening_Gaps", output_dir)
         print("\n--- Overall Widening Gaps (Top 5) ---")
         print(df_overall.head(5).to_string(index=False))
-    else:
-        print("\nNote: No 'Overall Widening' gaps found (Check DEBUG output above).")
 
 # ------------------- Main Visualisation -------------------
 
@@ -173,7 +193,6 @@ def visualise():
     
     print("="*60)
     print(f"--- Starting Visualisation ---")
-    print(f"Output Directory: {plot_output_dir.resolve()}")
 
     # 1. Load Data
     preds_path = data_dir / 'predictions.npy'
@@ -186,34 +205,28 @@ def visualise():
 
     preds = np.load(preds_path)
     trues = np.load(trues_path)
-    
-    if cols_path.exists():
-        col_names = np.load(cols_path, allow_pickle=True)
-    else:
-        print("Warning: 'node_names.npy' missing.")
-        return
-
+    col_names = np.load(cols_path, allow_pickle=True)
     target_groups = build_graph(graph_csv_path)
 
-    # 2. Select Forecast Window
     if preds.ndim == 4: preds = preds.squeeze(-1)
     if trues.ndim == 4: trues = trues.squeeze(-1)
 
     preds_window = preds[-1, :, :] 
     trues_window = trues[-1, :, :]
     
-    # 3. Generate Gap Tables (with Debug Prints)
+    # 2. Generate Gap Tables
     generate_gap_tables(preds_window, col_names, target_groups, data_dir)
     
-    # 4. Generate Plots
+    # 3. Generate Plots
     print("\n--- Generating Plots ---")
     total_steps = preds_window.shape[0]
     date_objs = generate_date_labels(total_steps, end_year=2025, end_month=12)
     
-    # --- Part A: Threat Groups (Gap Analysis Plots) ---
-    # This covers "Password Attack" (which is a Threat Group Key)
-    display_keys_group = ["Password Attack"] 
+    # Specific Keys for Figure 3 (Validation Only - No Solutions)
+    # Added "Password Attack" here so it gets a solo plot like Fig 3a
+    validation_keys = ["Password Attack", "NLP/LLM", "Data Backups"]
 
+    # --- Loop A: Gap Analysis Plots (Threat vs Solutions) ---
     for anchor_name, solutions in target_groups.items():
         anchor_idx = find_col_index(anchor_name, col_names)
         if anchor_idx is None: continue
@@ -226,10 +239,8 @@ def visualise():
         
         ax.plot(date_objs, norm_true, label=f'{anchor_name} (Actual)', color='#2c3e50', linewidth=2, alpha=0.9)
         ax.plot(date_objs, norm_pred, label=f'{anchor_name} (Forecast)', color='crimson', linestyle='--', linewidth=2)
-        
         std_dev = 0.05 * norm_pred 
-        ax.fill_between(date_objs, norm_pred - std_dev, norm_pred + std_dev, 
-                        color='mistyrose', alpha=0.6, label='95% Confidence')
+        ax.fill_between(date_objs, norm_pred - std_dev, norm_pred + std_dev, color='mistyrose', alpha=0.6)
 
         colors = ["royalblue", "darkorange", "mediumpurple", "teal", "olivedrab"]
         for idx, sol_name in enumerate(solutions):
@@ -247,28 +258,23 @@ def visualise():
         
         plt.xticks(rotation=90, fontsize=11)
         ax.set_ylabel("Trend", fontsize=14)
-        ax.set_title(f"{anchor_name}", fontsize=16, pad=15)
+        ax.set_title(f"Gap Analysis: {anchor_name}", fontsize=16, pad=15)
         ax.set_xlim(date_objs[0], date_objs[-1])
         ax.set_ylim(bottom=0)
         ax.grid(True, linestyle='-', alpha=0.3)
         ax.legend(loc="upper left", bbox_to_anchor=(1, 1), frameon=True)
         
         plt.tight_layout()
-        save_path = plot_output_dir / f'{str(anchor_name).replace("/", "_")}.png'
+        save_path = plot_output_dir / f'Gap_{str(anchor_name).replace("/", "_")}.png'
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
-        
-        if any(k in anchor_name for k in display_keys_group):
-            print(f"Displaying Plot: {anchor_name}")
-            plt.show()
-        else:
-            plt.close()
+        plt.close() # Close Gap plots (View them in folder)
 
-    # --- Part B: Validation Plots (Single Nodes) ---
-    # These are NOT Threat keys, they are specific nodes from Fig 3b/3c
-    validation_keys = ["NLP/LLM", "Data Backups"]
-    
+    # --- Loop B: Validation Plots (Solo - Fig 3 Style) ---
+    print("\n--- Displaying Validation Plots (Fig 3 Style) ---")
     for val_name in validation_keys:
         val_idx = find_col_index(val_name, col_names)
+        if val_idx is None:
+             val_idx = find_col_index(f"Solution_{val_name}_Papers", col_names)
         if val_idx is None:
             print(f"Warning: Could not find validation node '{val_name}'")
             continue
@@ -280,7 +286,6 @@ def visualise():
         
         ax.plot(date_objs, norm_true, label=f'{val_name} (Actual)', color='#2c3e50', linewidth=2, alpha=0.9)
         ax.plot(date_objs, norm_pred, label=f'{val_name} (Forecast)', color='crimson', linestyle='--', linewidth=2)
-        
         std_dev = 0.05 * norm_pred 
         ax.fill_between(date_objs, norm_pred - std_dev, norm_pred + std_dev, 
                         color='mistyrose', alpha=0.6, label='95% Confidence')
@@ -305,7 +310,7 @@ def visualise():
         print(f"Displaying Plot: {val_name}")
         plt.show()
 
-    print(f"All plots saved to: {plot_output_dir}")
+    print(f"All plots and tables saved to: {plot_output_dir}")
 
 if __name__ == "__main__":
     visualise()
