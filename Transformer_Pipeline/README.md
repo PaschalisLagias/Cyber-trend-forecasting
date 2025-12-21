@@ -14,26 +14,38 @@ This project approaches the forecasting problem using two different models to be
 ## Directory Structure
 ```
 Transformer_Pipeline/
+├── Models/
+│   └── PDFormer_Wrapper.py     
+├── Checkpoints/  # Stores the saved model weights (`.pth` files) generated during training. The pipeline automatically saves the "best" model based on validation loss here
 ├── Preprocessing/
 │   ├── Load_Data.py            
 │   ├── Cyber_Trend_to_Graph.py 
 │   └── Cyber_Trend_to_Image.py 
-├── Models/
-│   └── PDFormer_Wrapper.py     
 ├── Results/ # Stores .npy files, .csv tables, and .png plots
+│   ├── predictions.npy: Raw model forecast tensors.          
+│   ├── ground_truth.npy: The actual target values used for comparison.
+│   └── plots_paper_style: The sub-folder containing all generated PNGs and LaTeX tables (Figs 3 & 4, Tables 5 & 6).
 ├── Utils/
 │   └── Metrics.py
 ├── Cyber_Trend_Graph_Dataset.py
 ├── Cyber_Trend_Graphy_Config.json
 ├── Cyber_Trend_Vision_Dataset.py   
-├── Cyber_Trend_Vision_Config.json    
-├── Evaluate_Graph.py         
+├── Cyber_Trend_Vision_Config.json   
+├── Evaluate_Graph.py        
 ├── Train_Graph.py
 ├── Train_Vision.py                            
 ├── requirements.tx
 ├── Run_Pipeline.py       
-└── Visualise_Results.py t       
+└── Visualise_Results.py     
 ```
+
+## Usage
+
+1.  **Configure:** Edit `Cyber_Trend_Graph_Config.py` to set your desired hyperparameters (batch size, learning rate, etc.).
+2.  **Train:** Run `python Train_Graph.py` to train the model.
+3.  **Evaluate:** Run `python Evaluate_Graph.py` to generate predictions.
+4.  **Visualise:** Run `python Visualise_Results.py` to create graphs and tables.
+
 ## Experimental Settings & Metrics
 
 To ensure a comparison with the benchmark paper (*Forecasting Cyber Threats and Pertinent Mitigation Technologies*), pipelines has following settings:
