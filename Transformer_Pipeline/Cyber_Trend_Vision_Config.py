@@ -22,11 +22,11 @@ class CyberVisionTSConfig:
 
     # PCA dimensionality reduction (applied during preprocessing)
     apply_pca: bool = True
-    pca_variance_ratio: float = 0.95  # Retain 95% variance
+    pca_variance_ratio: float = 0.999
 
     model_arch: str = "mae_base"
     mode: str = "zero_shot"
-    finetune_type: str = "ln"
+    finetune_type: str = "full"
     load_pretrained: bool = True
 
     epochs: int = 10
