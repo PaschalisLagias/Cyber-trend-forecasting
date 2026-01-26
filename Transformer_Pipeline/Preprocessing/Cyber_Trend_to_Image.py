@@ -412,6 +412,7 @@ def main():
     parser.add_argument("--n-features", type=int, default=13, help="Number of features to select when using --feature-selection (default: 13)")
     parser.add_argument("--alpha", type=float, default=0.1, help="DES smoothing level parameter (default: 0.1)")
     parser.add_argument("--beta", type=float, default=0.1, help="DES smoothing trend parameter (default: 0.1)")
+    parser.add_argument("--window-first", action="store_true", help="Window entire dataset first, then split (more training samples)")
     args = parser.parse_args()
 
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
@@ -448,6 +449,7 @@ def main():
     print(f"Context Window (input):  {WINDOW_SIZE} months")
     print(f"Forecast Horizon (pred): {FORECAST_HORIZON} months")
     print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT + VAL_SPLIT):.0%}")
+    print(f"Windowing Strategy: {'Window-First (more samples)' if args.window_first else 'Split-First (standard)'}")
     if APPLY_FEATURE_SELECTION:
         print(f"Dimensionality Reduction: Feature Selection (top {N_FEATURES} features by PCA importance)")
     elif APPLY_PCA:
@@ -472,58 +474,148 @@ def main():
     else:
         df_processed = apply_double_exponential_smoothing(df_raw, alpha=args.alpha, beta=args.beta)
 
-    # --- Step 1: Split 2D data chronologically (BEFORE windowing) ---
-    # This ensures PCA is fit only on training data (no data leakage)
-    # Minimum split size = window + horizon to ensure at least 1 sample per split
-    min_split_size = WINDOW_SIZE + FORECAST_HORIZON
-    train_df, val_df, test_df = split_data(df_processed, TRAIN_SPLIT, VAL_SPLIT, min_split_size=min_split_size)
-
-    # --- Step 2: Compute Reference Scaler (fitted on training data, NOT applied) ---
-    scaler = compute_reference_scaler(train_df, OUTPUT_DIR)
-
-    # --- Step 3: Apply Dimensionality Reduction (if enabled) ---
+    # Initialize variables used in both branches
     pca_model = None
     pca_n_components = None
     pca_explained_variance = None
     selected_indices = None
     selected_feature_names = None
 
-    if APPLY_FEATURE_SELECTION:
-        # Feature selection: select top N original features by PCA importance
-        train_data, val_data, test_data, selected_indices, _ = select_features_by_pca_importance(
-            train_df, val_df, test_df,
-            n_features=N_FEATURES,
-            output_dir=OUTPUT_DIR
+    if args.window_first:
+        # =====================================================================
+        # WINDOW-FIRST APPROACH: Window entire dataset, then split samples
+        # This maximizes training data by creating overlapping windows across
+        # the full dataset, then splitting windows chronologically.
+        # =====================================================================
+        print("\n" + "=" * 60)
+        print("Using WINDOW-FIRST approach (maximum training samples)")
+        print("=" * 60)
+
+        # --- Step 1: Apply Dimensionality Reduction on ALL data ---
+        # For feature selection: fit PCA on train portion (first 43%) to avoid leakage
+        train_portion_end = int(len(df_processed) * TRAIN_SPLIT)
+
+        if APPLY_FEATURE_SELECTION:
+            print(f"\n--- Feature Selection (fit on first {TRAIN_SPLIT:.0%} of data) ---")
+            # Fit PCA on train portion only
+            train_portion = df_processed.iloc[:train_portion_end]
+            train_np = train_portion.values if hasattr(train_portion, 'values') else train_portion
+
+            # Compute feature importance from train portion
+            max_components = min(train_np.shape[0], original_features, N_FEATURES * 2)
+            pca = PCA(n_components=max_components)
+            pca.fit(train_np)
+
+            loadings = np.abs(pca.components_)
+            feature_importance = loadings.max(axis=0)
+            selected_indices = np.argsort(feature_importance)[::-1][:N_FEATURES]
+            selected_indices = np.sort(selected_indices)
+
+            # Apply selection to ALL data
+            all_data = df_processed.values[:, selected_indices]
+            num_features = N_FEATURES
+            selected_feature_names = df_raw.columns.values[selected_indices]
+            print(f"Selected {N_FEATURES} features from {original_features}")
+            print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
+
+            # Save feature selection info
+            selection_info = {
+                'selected_indices': selected_indices,
+                'feature_importance': feature_importance,
+                'n_features_selected': N_FEATURES,
+                'original_n_features': original_features,
+            }
+            selection_path = os.path.join(OUTPUT_DIR, "feature_selection.pkl")
+            with open(selection_path, "wb") as f:
+                pickle.dump(selection_info, f)
+
+        elif APPLY_PCA:
+            print(f"\n--- PCA (fit on first {TRAIN_SPLIT:.0%} of data) ---")
+            train_portion = df_processed.iloc[:train_portion_end].values
+            pca_model = PCA(n_components=PCA_VARIANCE, svd_solver='full')
+            pca_model.fit(train_portion)
+
+            all_data = pca_model.transform(df_processed.values)
+            pca_n_components = pca_model.n_components_
+            pca_explained_variance = float(pca_model.explained_variance_ratio_.sum())
+            num_features = pca_n_components
+            print(f"PCA: {original_features} → {pca_n_components} components ({pca_explained_variance:.1%} variance)")
+
+            # Save PCA model
+            pca_path = os.path.join(OUTPUT_DIR, "pca_model.pkl")
+            with open(pca_path, "wb") as f:
+                pickle.dump(pca_model, f)
+        else:
+            print("\n--- Skipping dimensionality reduction ---")
+            all_data = df_processed.values
+            num_features = original_features
+
+        # --- Step 2: Create sliding windows on ALL data ---
+        print("\n--- Creating Sliding Windows on Full Dataset ---")
+        X_all, y_all = create_sliding_windows(all_data, WINDOW_SIZE, FORECAST_HORIZON)
+        print(f"Total windows created: {X_all.shape[0]}")
+
+        # --- Step 3: Split windowed data chronologically ---
+        X_train, y_train, X_val, y_val, X_test, y_test = split_windowed_data(
+            X_all, y_all, TRAIN_SPLIT, VAL_SPLIT
         )
-        num_features = N_FEATURES
-        selected_feature_names = df_raw.columns.values[selected_indices]
-        print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
-    elif APPLY_PCA:
-        # PCA transformation
-        train_data, val_data, test_data, pca_model = fit_and_apply_pca(
-            train_df, val_df, test_df,
-            variance_ratio=PCA_VARIANCE,
-            output_dir=OUTPUT_DIR
-        )
-        pca_n_components = pca_model.n_components_
-        pca_explained_variance = float(pca_model.explained_variance_ratio_.sum())
-        num_features = pca_n_components
+
+        # Compute reference scaler from train portion of original data
+        train_df = df_processed.iloc[:train_portion_end]
+        _ = compute_reference_scaler(train_df, OUTPUT_DIR)
+
     else:
-        print("\n--- Skipping dimensionality reduction (--no-pca flag) ---")
-        train_data = train_df.values if hasattr(train_df, 'values') else train_df
-        val_data = val_df.values if hasattr(val_df, 'values') else val_df
-        test_data = test_df.values if hasattr(test_df, 'values') else test_df
-        num_features = original_features
+        # =====================================================================
+        # SPLIT-FIRST APPROACH (Standard): Split data, then window each split
+        # This is the traditional approach that ensures strict temporal separation.
+        # =====================================================================
 
-    # --- Step 4: Create Sliding Windows for each split ---
-    print("\n--- Creating Sliding Windows for Train Split ---")
-    X_train, y_train = create_sliding_windows(train_data, WINDOW_SIZE, FORECAST_HORIZON)
+        # --- Step 1: Split 2D data chronologically (BEFORE windowing) ---
+        # This ensures PCA is fit only on training data (no data leakage)
+        # Minimum split size = window + horizon to ensure at least 1 sample per split
+        min_split_size = WINDOW_SIZE + FORECAST_HORIZON
+        train_df, val_df, test_df = split_data(df_processed, TRAIN_SPLIT, VAL_SPLIT, min_split_size=min_split_size)
 
-    print("\n--- Creating Sliding Windows for Val Split ---")
-    X_val, y_val = create_sliding_windows(val_data, WINDOW_SIZE, FORECAST_HORIZON)
+        # --- Step 2: Compute Reference Scaler (fitted on training data, NOT applied) ---
+        _ = compute_reference_scaler(train_df, OUTPUT_DIR)
 
-    print("\n--- Creating Sliding Windows for Test Split ---")
-    X_test, y_test = create_sliding_windows(test_data, WINDOW_SIZE, FORECAST_HORIZON)
+        # --- Step 3: Apply Dimensionality Reduction (if enabled) ---
+        if APPLY_FEATURE_SELECTION:
+            # Feature selection: select top N original features by PCA importance
+            train_data, val_data, test_data, selected_indices, _ = select_features_by_pca_importance(
+                train_df, val_df, test_df,
+                n_features=N_FEATURES,
+                output_dir=OUTPUT_DIR
+            )
+            num_features = N_FEATURES
+            selected_feature_names = df_raw.columns.values[selected_indices]
+            print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
+        elif APPLY_PCA:
+            # PCA transformation
+            train_data, val_data, test_data, pca_model = fit_and_apply_pca(
+                train_df, val_df, test_df,
+                variance_ratio=PCA_VARIANCE,
+                output_dir=OUTPUT_DIR
+            )
+            pca_n_components = pca_model.n_components_
+            pca_explained_variance = float(pca_model.explained_variance_ratio_.sum())
+            num_features = pca_n_components
+        else:
+            print("\n--- Skipping dimensionality reduction (--no-pca flag) ---")
+            train_data = train_df.values if hasattr(train_df, 'values') else train_df
+            val_data = val_df.values if hasattr(val_df, 'values') else val_df
+            test_data = test_df.values if hasattr(test_df, 'values') else test_df
+            num_features = original_features
+
+        # --- Step 4: Create Sliding Windows for each split ---
+        print("\n--- Creating Sliding Windows for Train Split ---")
+        X_train, y_train = create_sliding_windows(train_data, WINDOW_SIZE, FORECAST_HORIZON)
+
+        print("\n--- Creating Sliding Windows for Val Split ---")
+        X_val, y_val = create_sliding_windows(val_data, WINDOW_SIZE, FORECAST_HORIZON)
+
+        print("\n--- Creating Sliding Windows for Test Split ---")
+        X_test, y_test = create_sliding_windows(test_data, WINDOW_SIZE, FORECAST_HORIZON)
 
     total_samples = X_train.shape[0] + X_val.shape[0] + X_test.shape[0]
     print(f"\nTotal samples: {total_samples} (train={X_train.shape[0]}, val={X_val.shape[0]}, test={X_test.shape[0]})")
@@ -537,6 +629,7 @@ def main():
         "original_num_features": original_features,
         "num_features": num_features,
         "total_samples": total_samples,
+        "window_first": args.window_first,
         "smoothing_applied": not args.no_smoothing,
         "smoothing_alpha": args.alpha if not args.no_smoothing else None,
         "smoothing_beta": args.beta if not args.no_smoothing else None,
