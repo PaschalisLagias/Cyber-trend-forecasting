@@ -30,14 +30,15 @@ class CyberVisionTSppConfig:
     # Model architecture
     model_arch: str = "mae_base"
     mode: str = "train"
-    finetune_type: str = "ln"
+    finetune_type: str = "mlp"
     load_pretrained: bool = True
 
     # Training parameters
     epochs: int = 50
     batch_size: int = 32
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-5
     patience: int = 50
+    temporal_weight: float = 0.3  # Weight for temporal difference loss component
 
     # Sequence lengths
     context_window_size: int = 10

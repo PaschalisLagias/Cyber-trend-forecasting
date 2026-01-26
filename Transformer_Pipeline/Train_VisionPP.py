@@ -81,6 +81,27 @@ def compute_additional_metrics(preds: np.ndarray, trues: np.ndarray) -> dict:
     return {"mse": mse, "mae": mae, "rmse": rmse, "correlation": corr}
 
 
+class TemporalAwareLoss(nn.Module):
+    """Combined L1 + temporal difference loss for time series."""
+
+    def __init__(self, temporal_weight: float = 0.3):
+        super().__init__()
+        self.temporal_weight = temporal_weight
+        self.l1_loss = nn.L1Loss()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Static loss: absolute error
+        static_loss = self.l1_loss(pred, target)
+
+        # Temporal difference loss: match rate of change
+        # Shape: (batch, time, features) -> differences along time axis
+        pred_diff = pred[:, 1:, :] - pred[:, :-1, :]
+        target_diff = target[:, 1:, :] - target[:, :-1, :]
+        temporal_loss = self.l1_loss(pred_diff, target_diff)
+
+        return static_loss + self.temporal_weight * temporal_loss
+
+
 class VisionTSppTrainer:
     """Trainer for VisionTS++ on cyber threat data."""
 
@@ -99,7 +120,7 @@ class VisionTSppTrainer:
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=config.learning_rate,
         )
-        self.criterion = nn.L1Loss()  # MAE loss
+        self.criterion = TemporalAwareLoss(temporal_weight=config.temporal_weight)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=config.epochs)
 
     def _build_model(self):
