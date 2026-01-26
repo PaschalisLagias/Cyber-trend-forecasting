@@ -198,7 +198,9 @@ def select_features_by_pca_importance(train_data, val_data, test_data, n_feature
     original_n_features = train_np.shape[1]
 
     # Fit full PCA to get loadings
-    pca = PCA(n_components=min(n_features * 2, original_n_features))
+    # n_components must be <= min(n_samples, n_features)
+    max_components = min(train_np.shape[0], original_n_features, n_features * 2)
+    pca = PCA(n_components=max_components)
     pca.fit(train_np)
 
     # Compute feature importance as max absolute loading across components
