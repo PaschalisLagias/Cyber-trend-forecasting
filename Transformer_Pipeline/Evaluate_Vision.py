@@ -201,8 +201,13 @@ def evaluate(data_dir: str = None, checkpoint_path: str = None) -> dict:
 
         print("\n--- Data Preprocessing Summary ---")
         print(f"Original features: {metadata.get('original_num_features', 'N/A')}")
-        print(f"PCA components:    {metadata.get('pca_n_components', 'N/A')}")
-        print(f"PCA variance:      {metadata.get('pca_explained_variance', 0):.1%}")
+        if metadata.get('feature_selection_applied'):
+            print(f"Feature selection: {metadata.get('num_features', 'N/A')} features selected")
+        elif metadata.get('pca_applied'):
+            print(f"PCA components:    {metadata.get('pca_n_components', 'N/A')}")
+            pca_var = metadata.get('pca_explained_variance')
+            if pca_var is not None:
+                print(f"PCA variance:      {pca_var:.1%}")
 
     return {
         "results_df": results_df,

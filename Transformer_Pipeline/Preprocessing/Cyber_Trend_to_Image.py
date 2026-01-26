@@ -170,6 +170,71 @@ def compute_reference_scaler(train_df, output_dir):
     return scaler
 
 
+def select_features_by_pca_importance(train_data, val_data, test_data, n_features=13, output_dir=None):
+    """
+    Select top N most important original features based on PCA loadings.
+
+    Instead of transforming to PCA space, this identifies which original features
+    contribute most to variance and returns those raw features. This preserves
+    interpretability while reducing dimensionality.
+
+    Args:
+        train_data: Training data array of shape (T_train, n_features)
+        val_data: Validation data array of shape (T_val, n_features)
+        test_data: Test data array of shape (T_test, n_features)
+        n_features: Number of top features to select
+        output_dir: Directory to save feature selection info (optional)
+
+    Returns:
+        tuple: (train_selected, val_selected, test_selected, selected_indices, feature_importance)
+    """
+    print(f"\n--- Selecting Top {n_features} Features by PCA Importance ---")
+
+    # Convert DataFrames to numpy if needed
+    train_np = train_data.values if hasattr(train_data, 'values') else train_data
+    val_np = val_data.values if hasattr(val_data, 'values') else val_data
+    test_np = test_data.values if hasattr(test_data, 'values') else test_data
+
+    original_n_features = train_np.shape[1]
+
+    # Fit full PCA to get loadings
+    pca = PCA(n_components=min(n_features * 2, original_n_features))
+    pca.fit(train_np)
+
+    # Compute feature importance as max absolute loading across components
+    # This identifies features that contribute most to the principal components
+    loadings = np.abs(pca.components_)  # Shape: (n_components, n_features)
+    feature_importance = loadings.max(axis=0)  # Max loading per feature
+
+    # Select top N features
+    selected_indices = np.argsort(feature_importance)[::-1][:n_features]
+    selected_indices = np.sort(selected_indices)  # Keep original order
+
+    # Extract selected features (raw values, not transformed)
+    train_selected = train_np[:, selected_indices]
+    val_selected = val_np[:, selected_indices]
+    test_selected = test_np[:, selected_indices]
+
+    print(f"Feature selection: {original_n_features} features → {n_features} selected")
+    print(f"Selected feature indices: {selected_indices[:10]}..." if len(selected_indices) > 10 else f"Selected indices: {selected_indices}")
+    print(f"Shapes: train={train_selected.shape}, val={val_selected.shape}, test={test_selected.shape}")
+
+    # Save selection info if output directory provided
+    if output_dir is not None:
+        selection_info = {
+            'selected_indices': selected_indices,
+            'feature_importance': feature_importance,
+            'n_features_selected': n_features,
+            'original_n_features': original_n_features,
+        }
+        selection_path = os.path.join(output_dir, "feature_selection.pkl")
+        with open(selection_path, "wb") as f:
+            pickle.dump(selection_info, f)
+        print(f"Feature selection info saved to {selection_path}")
+
+    return train_selected, val_selected, test_selected, selected_indices, feature_importance
+
+
 def fit_and_apply_pca(train_data, val_data, test_data, variance_ratio=0.95, output_dir=None):
     """
     Fit PCA on training data and transform all splits.
@@ -341,6 +406,8 @@ def main():
     parser.add_argument("--no-smoothing", action="store_true", help="Skip Double Exponential Smoothing.")
     parser.add_argument("--no-pca", action="store_true", help="Skip PCA dimensionality reduction.")
     parser.add_argument("--pca-variance", type=float, default=0.95, help="PCA variance ratio to retain (default: 0.95)")
+    parser.add_argument("--feature-selection", action="store_true", help="Use PCA-based feature selection instead of PCA transformation. Selects top N most important original features.")
+    parser.add_argument("--n-features", type=int, default=13, help="Number of features to select when using --feature-selection (default: 13)")
     parser.add_argument("--alpha", type=float, default=0.1, help="DES smoothing level parameter (default: 0.1)")
     parser.add_argument("--beta", type=float, default=0.1, help="DES smoothing trend parameter (default: 0.1)")
     args = parser.parse_args()
@@ -361,9 +428,11 @@ def main():
     WINDOW_SIZE = 10  # 10 Months History (context_len)
     FORECAST_HORIZON = 36  # 36 Months Forecast (pred_len)
 
-    # PCA settings
-    APPLY_PCA = not args.no_pca
+    # Dimensionality reduction settings
+    APPLY_PCA = not args.no_pca and not args.feature_selection
+    APPLY_FEATURE_SELECTION = args.feature_selection
     PCA_VARIANCE = args.pca_variance
+    N_FEATURES = args.n_features
 
     # Create output directory
     if not os.path.exists(OUTPUT_DIR):
@@ -377,7 +446,12 @@ def main():
     print(f"Context Window (input):  {WINDOW_SIZE} months")
     print(f"Forecast Horizon (pred): {FORECAST_HORIZON} months")
     print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT + VAL_SPLIT):.0%}")
-    print(f"PCA: {'Enabled (variance={:.0%})'.format(PCA_VARIANCE) if APPLY_PCA else 'Disabled'}")
+    if APPLY_FEATURE_SELECTION:
+        print(f"Dimensionality Reduction: Feature Selection (top {N_FEATURES} features by PCA importance)")
+    elif APPLY_PCA:
+        print(f"Dimensionality Reduction: PCA (variance={PCA_VARIANCE:.0%})")
+    else:
+        print(f"Dimensionality Reduction: Disabled")
     print(f"Output Directory: {OUTPUT_DIR}")
 
     # --- Step 0: Load Data ---
@@ -405,12 +479,25 @@ def main():
     # --- Step 2: Compute Reference Scaler (fitted on training data, NOT applied) ---
     scaler = compute_reference_scaler(train_df, OUTPUT_DIR)
 
-    # --- Step 3: Apply PCA (if enabled) ---
+    # --- Step 3: Apply Dimensionality Reduction (if enabled) ---
     pca_model = None
     pca_n_components = None
     pca_explained_variance = None
+    selected_indices = None
+    selected_feature_names = None
 
-    if APPLY_PCA:
+    if APPLY_FEATURE_SELECTION:
+        # Feature selection: select top N original features by PCA importance
+        train_data, val_data, test_data, selected_indices, _ = select_features_by_pca_importance(
+            train_df, val_df, test_df,
+            n_features=N_FEATURES,
+            output_dir=OUTPUT_DIR
+        )
+        num_features = N_FEATURES
+        selected_feature_names = df_raw.columns.values[selected_indices]
+        print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
+    elif APPLY_PCA:
+        # PCA transformation
         train_data, val_data, test_data, pca_model = fit_and_apply_pca(
             train_df, val_df, test_df,
             variance_ratio=PCA_VARIANCE,
@@ -420,7 +507,7 @@ def main():
         pca_explained_variance = float(pca_model.explained_variance_ratio_.sum())
         num_features = pca_n_components
     else:
-        print("\n--- Skipping PCA (--no-pca flag) ---")
+        print("\n--- Skipping dimensionality reduction (--no-pca flag) ---")
         train_data = train_df.values if hasattr(train_df, 'values') else train_df
         val_data = val_df.values if hasattr(val_df, 'values') else val_df
         test_data = test_df.values if hasattr(test_df, 'values') else test_df
@@ -455,10 +542,16 @@ def main():
         "pca_n_components": pca_n_components,
         "pca_variance_target": PCA_VARIANCE if APPLY_PCA else None,
         "pca_explained_variance": pca_explained_variance,
+        "feature_selection_applied": APPLY_FEATURE_SELECTION,
+        "selected_feature_indices": selected_indices.tolist() if selected_indices is not None else None,
+        "selected_feature_names": list(selected_feature_names) if selected_feature_names is not None else None,
         "date_range": {
             "full": (str(df_processed.index.min().date()), str(df_processed.index.max().date())),
         },
     }
+
+    # Use selected feature names if feature selection was applied, otherwise original names
+    feature_names_to_save = selected_feature_names if selected_feature_names is not None else df_raw.columns.values
 
     save_processed_data(
         OUTPUT_DIR,
@@ -468,7 +561,7 @@ def main():
         y_val,
         X_test,
         y_test,
-        feature_names=df_raw.columns.values,
+        feature_names=feature_names_to_save,
         metadata=metadata,
     )
 
@@ -479,9 +572,12 @@ def main():
     print("Files created:")
     print("  - train.npz, val.npz, test.npz (windowed data)")
     print("  - scaler.pkl (reference scaler - NOT applied to data)")
-    print("  - feature_names.npy (original column names)")
+    print("  - feature_names.npy (selected/original column names)")
     print("  - metadata.pkl (preprocessing parameters)")
-    if APPLY_PCA:
+    if APPLY_FEATURE_SELECTION:
+        print("  - feature_selection.pkl (feature selection info)")
+        print(f"\nFeature Selection Summary: {original_features} → {num_features} features (raw values preserved)")
+    elif APPLY_PCA:
         print("  - pca_model.pkl (fitted PCA transformer)")
         print(f"\nPCA Summary: {original_features} → {pca_n_components} features ({pca_explained_variance:.1%} variance)")
 
