@@ -237,6 +237,113 @@ def select_features_by_pca_importance(train_data, val_data, test_data, n_feature
     return train_selected, val_selected, test_selected, selected_indices, feature_importance
 
 
+def select_features_hybrid(train_data, val_data, test_data, n_features=224,
+                           variance_threshold=0.01, correlation_threshold=0.95,
+                           output_dir=None):
+    """
+    Hybrid feature selection combining variance filtering, correlation removal,
+    and PCA importance ranking.
+
+    Steps:
+    1. Remove features with variance below threshold (near-constant)
+    2. Remove highly correlated features (keep one from each correlated pair)
+    3. Select top N by PCA importance from remaining features
+
+    Args:
+        train_data: Training data array of shape (T_train, n_features)
+        val_data: Validation data array of shape (T_val, n_features)
+        test_data: Test data array of shape (T_test, n_features)
+        n_features: Target number of features to select (default: 224, VisionTS++ max)
+        variance_threshold: Minimum variance for feature inclusion (default: 0.01)
+        correlation_threshold: Maximum correlation before removing redundant feature (default: 0.95)
+        output_dir: Directory to save feature selection info (optional)
+
+    Returns:
+        tuple: (train_selected, val_selected, test_selected, selected_indices, selection_info)
+    """
+    print(f"\n--- Hybrid Feature Selection (target: {n_features} features) ---")
+
+    # Convert to numpy
+    train_np = train_data.values if hasattr(train_data, 'values') else train_data
+    val_np = val_data.values if hasattr(val_data, 'values') else val_data
+    test_np = test_data.values if hasattr(test_data, 'values') else test_data
+    original_n = train_np.shape[1]
+
+    # Step 1: Variance filtering
+    variances = np.var(train_np, axis=0)
+    variance_mask = variances >= variance_threshold
+    n_after_var = variance_mask.sum()
+    print(f"  Step 1 - Variance filter (threshold={variance_threshold}): {original_n} -> {n_after_var}")
+
+    # Step 2: Correlation filtering (on variance-filtered features)
+    train_filtered = train_np[:, variance_mask]
+    corr_matrix = np.corrcoef(train_filtered.T)
+    corr_matrix = np.nan_to_num(corr_matrix, nan=0.0)  # Handle NaN
+
+    # Find highly correlated pairs and keep first occurrence
+    to_keep = np.ones(n_after_var, dtype=bool)
+    for i in range(n_after_var):
+        if not to_keep[i]:
+            continue
+        for j in range(i + 1, n_after_var):
+            if abs(corr_matrix[i, j]) > correlation_threshold:
+                to_keep[j] = False
+
+    n_after_corr = to_keep.sum()
+    print(f"  Step 2 - Correlation filter (threshold={correlation_threshold}): {n_after_var} -> {n_after_corr}")
+
+    # Map back to original indices
+    variance_indices = np.where(variance_mask)[0]
+    filtered_indices = variance_indices[to_keep]
+
+    # Step 3: PCA importance on filtered features
+    train_for_pca = train_np[:, filtered_indices]
+
+    if n_after_corr <= n_features:
+        # Use all remaining features
+        selected_indices = filtered_indices
+        print(f"  Step 3 - Using all {n_after_corr} remaining features (< target {n_features})")
+    else:
+        # Apply PCA importance ranking
+        max_components = min(train_for_pca.shape[0], n_after_corr, n_features * 2)
+        pca = PCA(n_components=max_components)
+        pca.fit(train_for_pca)
+
+        loadings = np.abs(pca.components_)
+        feature_importance = loadings.max(axis=0)
+        top_k = np.argsort(feature_importance)[::-1][:n_features]
+        selected_indices = filtered_indices[np.sort(top_k)]
+        print(f"  Step 3 - PCA importance: {n_after_corr} -> {n_features}")
+
+    # Extract selected features
+    train_selected = train_np[:, selected_indices]
+    val_selected = val_np[:, selected_indices]
+    test_selected = test_np[:, selected_indices]
+
+    print(f"  Final: {original_n} -> {len(selected_indices)} features")
+
+    # Build selection info
+    selection_info = {
+        'selected_indices': selected_indices,
+        'n_features_selected': len(selected_indices),
+        'original_n_features': original_n,
+        'variance_threshold': variance_threshold,
+        'correlation_threshold': correlation_threshold,
+        'n_after_variance_filter': int(n_after_var),
+        'n_after_correlation_filter': int(n_after_corr),
+        'method': 'hybrid',
+    }
+
+    # Save selection info if output directory provided
+    if output_dir is not None:
+        selection_path = os.path.join(output_dir, "feature_selection.pkl")
+        with open(selection_path, "wb") as f:
+            pickle.dump(selection_info, f)
+        print(f"Feature selection info saved to {selection_path}")
+
+    return train_selected, val_selected, test_selected, selected_indices, selection_info
+
+
 def fit_and_apply_pca(train_data, val_data, test_data, variance_ratio=0.95, output_dir=None):
     """
     Fit PCA on training data and transform all splits.
@@ -409,10 +516,15 @@ def main():
     parser.add_argument("--no-pca", action="store_true", help="Skip PCA dimensionality reduction.")
     parser.add_argument("--pca-variance", type=float, default=0.95, help="PCA variance ratio to retain (default: 0.95)")
     parser.add_argument("--feature-selection", action="store_true", help="Use PCA-based feature selection instead of PCA transformation. Selects top N most important original features.")
-    parser.add_argument("--n-features", type=int, default=13, help="Number of features to select when using --feature-selection (default: 13)")
+    parser.add_argument("--hybrid-selection", action="store_true", help="Use hybrid feature selection (variance + correlation + PCA importance)")
+    parser.add_argument("--n-features", type=int, default=224, help="Number of features to select when using --feature-selection or --hybrid-selection (default: 224)")
+    parser.add_argument("--variance-threshold", type=float, default=0.01, help="Minimum variance for feature inclusion in hybrid selection (default: 0.01)")
+    parser.add_argument("--correlation-threshold", type=float, default=0.95, help="Maximum correlation before removing redundant feature in hybrid selection (default: 0.95)")
     parser.add_argument("--alpha", type=float, default=0.1, help="DES smoothing level parameter (default: 0.1)")
     parser.add_argument("--beta", type=float, default=0.1, help="DES smoothing trend parameter (default: 0.1)")
     parser.add_argument("--window-first", action="store_true", help="Window entire dataset first, then split (more training samples)")
+    parser.add_argument("--context-len", type=int, default=36, help="Context window size in months (default: 36)")
+    parser.add_argument("--pred-len", type=int, default=36, help="Prediction horizon in months (default: 36)")
     args = parser.parse_args()
 
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
@@ -428,14 +540,17 @@ def main():
     # Test Split is implicitly 0.27 (remainder)
 
     # Model input/output settings
-    WINDOW_SIZE = 10  # 10 Months History (context_len)
-    FORECAST_HORIZON = 36  # 36 Months Forecast (pred_len)
+    WINDOW_SIZE = args.context_len  # Months History (context_len)
+    FORECAST_HORIZON = args.pred_len  # Months Forecast (pred_len)
 
     # Dimensionality reduction settings
-    APPLY_PCA = not args.no_pca and not args.feature_selection
-    APPLY_FEATURE_SELECTION = args.feature_selection
+    APPLY_HYBRID_SELECTION = args.hybrid_selection
+    APPLY_FEATURE_SELECTION = args.feature_selection and not args.hybrid_selection
+    APPLY_PCA = not args.no_pca and not args.feature_selection and not args.hybrid_selection
     PCA_VARIANCE = args.pca_variance
     N_FEATURES = args.n_features
+    VARIANCE_THRESHOLD = args.variance_threshold
+    CORRELATION_THRESHOLD = args.correlation_threshold
 
     # Create output directory
     if not os.path.exists(OUTPUT_DIR):
@@ -450,7 +565,11 @@ def main():
     print(f"Forecast Horizon (pred): {FORECAST_HORIZON} months")
     print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT + VAL_SPLIT):.0%}")
     print(f"Windowing Strategy: {'Window-First (more samples)' if args.window_first else 'Split-First (standard)'}")
-    if APPLY_FEATURE_SELECTION:
+    if APPLY_HYBRID_SELECTION:
+        print(f"Dimensionality Reduction: Hybrid Selection (target {N_FEATURES} features)")
+        print(f"  - Variance threshold: {VARIANCE_THRESHOLD}")
+        print(f"  - Correlation threshold: {CORRELATION_THRESHOLD}")
+    elif APPLY_FEATURE_SELECTION:
         print(f"Dimensionality Reduction: Feature Selection (top {N_FEATURES} features by PCA importance)")
     elif APPLY_PCA:
         print(f"Dimensionality Reduction: PCA (variance={PCA_VARIANCE:.0%})")
@@ -495,7 +614,29 @@ def main():
         # For feature selection: fit PCA on train portion (first 43%) to avoid leakage
         train_portion_end = int(len(df_processed) * TRAIN_SPLIT)
 
-        if APPLY_FEATURE_SELECTION:
+        if APPLY_HYBRID_SELECTION:
+            print(f"\n--- Hybrid Feature Selection (fit on first {TRAIN_SPLIT:.0%} of data) ---")
+            # Use train portion for fitting, then apply to all data
+            train_portion = df_processed.iloc[:train_portion_end]
+            val_portion = df_processed.iloc[train_portion_end:int(len(df_processed) * (TRAIN_SPLIT + VAL_SPLIT))]
+            test_portion = df_processed.iloc[int(len(df_processed) * (TRAIN_SPLIT + VAL_SPLIT)):]
+
+            # Get selected features using hybrid method
+            _, _, _, selected_indices, selection_info = select_features_hybrid(
+                train_portion, val_portion, test_portion,
+                n_features=N_FEATURES,
+                variance_threshold=VARIANCE_THRESHOLD,
+                correlation_threshold=CORRELATION_THRESHOLD,
+                output_dir=OUTPUT_DIR
+            )
+
+            # Apply selection to ALL data
+            all_data = df_processed.values[:, selected_indices]
+            num_features = len(selected_indices)
+            selected_feature_names = df_raw.columns.values[selected_indices]
+            print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
+
+        elif APPLY_FEATURE_SELECTION:
             print(f"\n--- Feature Selection (fit on first {TRAIN_SPLIT:.0%} of data) ---")
             # Fit PCA on train portion only
             train_portion = df_processed.iloc[:train_portion_end]
@@ -580,7 +721,19 @@ def main():
         _ = compute_reference_scaler(train_df, OUTPUT_DIR)
 
         # --- Step 3: Apply Dimensionality Reduction (if enabled) ---
-        if APPLY_FEATURE_SELECTION:
+        if APPLY_HYBRID_SELECTION:
+            # Hybrid feature selection: variance + correlation + PCA importance
+            train_data, val_data, test_data, selected_indices, _ = select_features_hybrid(
+                train_df, val_df, test_df,
+                n_features=N_FEATURES,
+                variance_threshold=VARIANCE_THRESHOLD,
+                correlation_threshold=CORRELATION_THRESHOLD,
+                output_dir=OUTPUT_DIR
+            )
+            num_features = len(selected_indices)
+            selected_feature_names = df_raw.columns.values[selected_indices]
+            print(f"Selected features: {list(selected_feature_names[:5])}..." if len(selected_feature_names) > 5 else f"Selected features: {list(selected_feature_names)}")
+        elif APPLY_FEATURE_SELECTION:
             # Feature selection: select top N original features by PCA importance
             train_data, val_data, test_data, selected_indices, _ = select_features_by_pca_importance(
                 train_df, val_df, test_df,
@@ -638,6 +791,9 @@ def main():
         "pca_variance_target": PCA_VARIANCE if APPLY_PCA else None,
         "pca_explained_variance": pca_explained_variance,
         "feature_selection_applied": APPLY_FEATURE_SELECTION,
+        "hybrid_selection_applied": APPLY_HYBRID_SELECTION,
+        "variance_threshold": VARIANCE_THRESHOLD if APPLY_HYBRID_SELECTION else None,
+        "correlation_threshold": CORRELATION_THRESHOLD if APPLY_HYBRID_SELECTION else None,
         "selected_feature_indices": selected_indices.tolist() if selected_indices is not None else None,
         "selected_feature_names": list(selected_feature_names) if selected_feature_names is not None else None,
         "date_range": {
@@ -669,12 +825,17 @@ def main():
     print("  - scaler.pkl (reference scaler - NOT applied to data)")
     print("  - feature_names.npy (selected/original column names)")
     print("  - metadata.pkl (preprocessing parameters)")
-    if APPLY_FEATURE_SELECTION:
+    if APPLY_HYBRID_SELECTION:
+        print("  - feature_selection.pkl (hybrid feature selection info)")
+        print(f"\nHybrid Selection Summary: {original_features} -> {num_features} features")
+        print(f"  Variance threshold: {VARIANCE_THRESHOLD}")
+        print(f"  Correlation threshold: {CORRELATION_THRESHOLD}")
+    elif APPLY_FEATURE_SELECTION:
         print("  - feature_selection.pkl (feature selection info)")
-        print(f"\nFeature Selection Summary: {original_features} → {num_features} features (raw values preserved)")
+        print(f"\nFeature Selection Summary: {original_features} -> {num_features} features (raw values preserved)")
     elif APPLY_PCA:
         print("  - pca_model.pkl (fitted PCA transformer)")
-        print(f"\nPCA Summary: {original_features} → {pca_n_components} features ({pca_explained_variance:.1%} variance)")
+        print(f"\nPCA Summary: {original_features} -> {pca_n_components} features ({pca_explained_variance:.1%} variance)")
 
 
 if __name__ == "__main__":

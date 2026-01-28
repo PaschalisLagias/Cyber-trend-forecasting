@@ -82,12 +82,43 @@ def compute_additional_metrics(preds: np.ndarray, trues: np.ndarray) -> dict:
 
 
 class TemporalAwareLoss(nn.Module):
-    """Combined L1 + temporal difference loss for time series."""
+    """Combined L1 + temporal difference + correlation loss for time series."""
 
-    def __init__(self, temporal_weight: float = 0.3):
+    def __init__(self, temporal_weight: float = 0.3, corr_weight: float = 0.3, eps: float = 1e-7):
         super().__init__()
         self.temporal_weight = temporal_weight
+        self.corr_weight = corr_weight
+        self.eps = eps
         self.l1_loss = nn.L1Loss()
+
+    def pearson_correlation_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Differentiable Pearson correlation loss computed per-feature.
+
+        Args:
+            pred: (batch, time, features)
+            target: (batch, time, features)
+
+        Returns:
+            Loss = 1 - mean(per-feature correlation across time)
+        """
+        # Center the data along time dimension
+        pred_mean = pred.mean(dim=1, keepdim=True)  # (B, 1, F)
+        target_mean = target.mean(dim=1, keepdim=True)
+
+        pred_centered = pred - pred_mean
+        target_centered = target - target_mean
+
+        # Compute covariance and standard deviations
+        covariance = (pred_centered * target_centered).sum(dim=1)  # (B, F)
+        pred_std = torch.sqrt((pred_centered**2).sum(dim=1) + self.eps)
+        target_std = torch.sqrt((target_centered**2).sum(dim=1) + self.eps)
+
+        # Pearson correlation per feature: (B, F)
+        correlation = covariance / (pred_std * target_std + self.eps)
+
+        # Loss = 1 - mean correlation (want to maximize correlation)
+        return 1.0 - correlation.mean()
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         # Static loss: absolute error
@@ -99,7 +130,10 @@ class TemporalAwareLoss(nn.Module):
         target_diff = target[:, 1:, :] - target[:, :-1, :]
         temporal_loss = self.l1_loss(pred_diff, target_diff)
 
-        return static_loss + self.temporal_weight * temporal_loss
+        # Correlation loss: maximize per-feature correlation
+        corr_loss = self.pearson_correlation_loss(pred, target)
+
+        return static_loss + self.temporal_weight * temporal_loss + self.corr_weight * corr_loss
 
 
 class VisionTSppTrainer:
@@ -120,7 +154,10 @@ class VisionTSppTrainer:
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=config.learning_rate,
         )
-        self.criterion = TemporalAwareLoss(temporal_weight=config.temporal_weight)
+        self.criterion = TemporalAwareLoss(
+            temporal_weight=config.temporal_weight,
+            corr_weight=config.corr_weight,
+        )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=config.epochs)
 
     def _build_model(self):

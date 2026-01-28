@@ -18,27 +18,28 @@ class CyberVisionTSppConfig:
     seed: int = 123
 
     # Data splits - same as VisionTS for consistency
-    train_split: float = 0.42
+    train_split: float = 0.43
     val_split: float = 0.30
-    test_split: float = 0.28
+    test_split: float = 0.27
 
     # Feature selection (VisionTS++ works better with selected features)
-    # Max 224 features due to shared image space
+    # Max 224 features due to shared image space (1 pixel per feature at max)
     use_feature_selection: bool = True
-    n_features: int = 25
+    n_features: int = 224
 
     # Model architecture
     model_arch: str = "mae_base"
     mode: str = "train"
-    finetune_type: str = "mlp"
+    finetune_type: str = "full"
     load_pretrained: bool = True
 
     # Training parameters
-    epochs: int = 50
+    epochs: int = 100
     batch_size: int = 32
-    learning_rate: float = 1e-5
+    learning_rate: float = 1e-4
     patience: int = 50
     temporal_weight: float = 0.3  # Weight for temporal difference loss component
+    corr_weight: float = 1.0  # Weight for correlation loss component (higher to prioritize pattern matching)
 
     # Sequence lengths
     context_window_size: int = 10
@@ -47,7 +48,7 @@ class CyberVisionTSppConfig:
     pred_len: int = 36
 
     # VisionTS++ specific parameters
-    periodicity: int = 1
+    periodicity: int = 12
     norm_const: float = 0.4
     align_const: float = 0.4
     interpolation: str = "bilinear"
