@@ -12,11 +12,16 @@ Directory contains Jupyter notebooks used for verifying pipeline logic, visualis
 * **Training Loop:** Runs a short, interactive training session to verify that the RSE/RAE metrics are calculating correctly and decreasing.
 
 ### 2. `Transformer_Pipeline_Vignette.ipynb`
-**Purpose:** Pipeline dashboard and demonstration tool for the project. Executes the end-to-end workflow (Train → Eval → Viz) and is designed to run on both Google Colab and the natogpu server.
+**Purpose:** Pipeline dashboard and demonstration tool for the project. Executes the end-to-end workflow (Data Prep → Train → Eval → Vis) and is designed to run on both Google Colab and the natogpu server.
 **Key Functions:**
 * **Environment Switching:** Automatically detects the runtime (Colab vs. Local) and handles drive mounting, pathing, and dependencies accordingly.
-* **Pipeline Manager:** Sequentially executes `Train_Graph.py`, `Evaluate_Graph.py`, and `Visualise_Results.py` using isolated memory states
-* **Interactive Demo:** Displays the final "Gap Analysis" and "Forecast" plots inline for stakeholder review.
+* **Data Regeneration:** capability to re-run the graph data generation process to ensure input tensors are built from the latest source CSVs.
+* **Pipeline Manager:** Sequentially executes the full model pipeline (`Train_Graph.py`, `Evaluate_Graph.py`) using isolated memory states.
+* **Interactive Visualisations:** A modular, multi-cell dashboard that presents results in four distinct layers:
+    * **Broad Analysis:** Global aggregate plots for "Forecast Accuracy" and "Gap Analysis" (Threat vs. Solution).
+    * **Validation Figures:** Detailed "Forecast vs Actual" plots for key nodes (Fig 3) and a complete grid view of all validation nodes.
+    * **Risk Tables:** Tables identifying the top "Widening" (Risks) and "Narrowing" (Successes) gaps.
+    * **Continuous Trends:** Long-term historical and forecast evolution (2011–2025) for major threat vectors (Fig 4).
 
 ## Setup & Usage
 

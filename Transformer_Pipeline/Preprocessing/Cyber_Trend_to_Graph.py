@@ -2,11 +2,14 @@
 import os
 import pickle
 import argparse # Added for command-line flag
+import sys
+from pathlib import Path
 
 # Import Third-party imports
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from scipy.sparse.csgraph import shortest_path
 
 # Imports from base paper
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -15,8 +18,21 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from fastdtw import fastdtw
 from tslearn.clustering import TimeSeriesKMeans
 
-# Local imports - using project filename conventions
-from .Load_Data import load_cyber_threat_data
+# Local imports
+try:
+    from Transformer_Pipeline.Preprocessing.Load_Data import load_cyber_threat_data
+except ImportError:
+    # Fallback if running from within the folder directly
+    from Load_Data import load_cyber_threat_data
+
+# ---------------------------------------------------------
+# PATH SETUP: Allow importing from Transformer_Pipeline
+# ---------------------------------------------------------
+current_dir = Path(__file__).resolve().parent
+project_root = current_dir.parent.parent
+sys.path.append(str(project_root))
+
+from Transformer_Pipeline.Cyber_Trend_Graph_Config import PDFormerConfig
 
 # ------------------- Preprocessing Functions -------------------
 
@@ -59,34 +75,51 @@ def apply_double_exponential_smoothing(df, alpha=0.1, beta=0.1):
     print(f"Smoothed {success_count}/{len(df.columns)} columns.")
     return df_smoothed
 
-def split_data(df_raw, train_split, val_split):
+def split_data(df_raw, train_split, val_split, window_size):
     """
-    Splits the raw DataFrame chronologically into training, validation, and test sets.
+    Splits the raw DataFrame chronologically into training, validation, and test sets,
+    adding a 'lookback buffer' (overlap) to Val and Test so windowing doesn't lose data.
 
     Args:
         df_raw (pd.DataFrame): The raw DataFrame.
-        train_split (float): The proportion of data for the training set (e.g., 0.7).
-        val_split (float): The proportion of data for the validation set (e.g., 0.1).
+        train_split (float): The proportion of data for the training set.
+        val_split (float): The proportion of data for the validation set .
+        window_size (int): The number of past time steps (overlap) needed for the first window.
 
     Returns:
         tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: DataFrames for the training, validation, and test sets.
     """
     # --- PROCESS ---
     # Calculate split indices based on TRAIN_SPLIT and VAL_SPLIT proportions.
+    # Apply a lookback buffer (window_size) to the start of Val and Test sets.
     # Create train_df, val_df, test_df pandas DataFrames using iloc.
-    # Print the date ranges and sizes of each split for verification.
+    # Print the sizes of each split for verification.
     # --- CODE ---
-    print("\n--- Step 1: Splitting Data ---")
+    print("\n--- Step 1: Splitting Data (With Lookback Overlap) ---")
+    
     n = len(df_raw)
+    
+    # Calculate strict indices based on ratios
     train_end = int(n * train_split)
     val_end = int(n * (train_split + val_split))
 
+    # 1. Train: From start to cut point
     train_df = df_raw.iloc[:train_end]
-    val_df = df_raw.iloc[train_end:val_end]
-    test_df = df_raw.iloc[val_end:]
 
-    print(f"Train: {train_df.shape}, Val: {val_df.shape}, Test: {test_df.shape}")
-    print("Data splitting complete")
+    # 2. Val: Start at (train_end - window_size) so it has history from Train
+    val_start = max(0, train_end - window_size)
+    val_df = df_raw.iloc[val_start:val_end]
+
+    # 3. Test: Start at (val_end - window_size) so it has history from Val
+    test_start = max(0, val_end - window_size)
+    test_df = df_raw.iloc[test_start:]
+
+    print(f"Split Ratios: {train_split}/{val_split}/Remainder")
+    print(f"Overlap Buffer: {window_size} steps")
+    print(f"Train: {train_df.shape}")
+    print(f"Val:   {val_df.shape} (includes overlap)")
+    print(f"Test:  {test_df.shape} (includes overlap)")
+    
     return train_df, val_df, test_df
 
 
@@ -269,12 +302,14 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     """
     print("\n--- Step 4b: Computing Shortest Path Matrices (PDFormer) ---")
     # --- PROCESS ---
-    # Replicate the logic from PDFormerDataset's _load_rel method.
+    # Replicate the logic from PDFormerDataset's _load_rel method but optimized.
     # --- sh_mx (hop matrix) ---
-    # Initialise sh_mx from adj_matrix (1s for edges, 511 for no edge, 0 for diagonal).
-    # Use the Floyd-Warshall algorithm (3 nested loops) to find the shortest hop count.
+    # Initialise sh_mx from adj_matrix using SciPy's optimized C++ implementation.
+    # (Manual Floyd-Warshall O(N^3) is too slow for >200 nodes).
+    # Convert 'infinity' paths to 511 (PDFormer convention).
     # Save the resulting sh_mx.npy to the output_dir.
     # --- sd_mx (distance matrix) ---
+<<<<<<< HEAD
     # This might be computed from a different source in their 'rel' file.
     # For our purpose, we might adapt this or use the adj_matrix itself.
     # Placeholder: save a copy or computed version as sd_mx.npy.
@@ -298,16 +333,49 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
             for j in range(num_nodes):
                 sh_mx[i, j] = min(sh_mx[i, j], sh_mx[i, k] + sh_mx[k, j])
 
+=======
+    # Mirror sh_mx for simplicity unless physical distances exist.
+    # Save as sd_mx.npy.
+
+    num_nodes = adj_matrix.shape[0]
+    print(f" - Calculating shortest paths for {num_nodes} nodes (Optimized)...")
+
+    # 1. Compute Shortest Path using SciPy (Dijkstra/Floyd-Warshall in C++)
+    # unweighted=True treats the graph as having hop distance 1 for all edges
+    # This replaces the 3 nested loops which would take ~1 hour for 1231 nodes
+    dist_matrix = shortest_path(csgraph=adj_matrix, directed=False, unweighted=True)
+    
+    # 2. Format for PDFormer conventions
+    # PDFormer expects a specific 'infinity' value (511) for masking
+    sh_mx = dist_matrix.copy()
+    
+    # SciPy returns 'inf' for unconnected nodes; replace with 511
+    sh_mx[np.isinf(sh_mx)] = 511
+    # Also cap any very long paths at 511
+    sh_mx[sh_mx > 511] = 511
+    
+    # Ensure integer type and 0 diagonal
+    sh_mx = sh_mx.astype(int)
+    np.fill_diagonal(sh_mx, 0)
+    
+>>>>>>> origin/development
     # Save Hop Matrix
     sh_path = os.path.join(output_dir, 'sh_mx.npy')
     np.save(sh_path, sh_mx)
     print(f"Saved sh_mx (Hops) to {sh_path}")
 
+<<<<<<< HEAD
     # Initialise Distance Matrix (sd_mx)
     # In PDFormer, if there are no physical distances, we use the Hop count
     # or the inverted adjacency weights. Here we will mirror sh_mx for simplicity
     # unless you have a specific physical distance metric.
+=======
+    # 3. Initialise Distance Matrix (sd_mx)
+    # In PDFormer, if there are no physical distances, we use the Hop count 
+    # or the inverted adjacency weights. Here we mirror sh_mx.
+>>>>>>> origin/development
     sd_mx = sh_mx.astype(float)
+    
     sd_path = os.path.join(output_dir, 'sd_mx.npy')
     np.save(sd_path, sd_mx)
     print(f"Saved sd_mx (Distances) to {sd_path}")
@@ -458,6 +526,7 @@ def main():
                         help="Generate expensive outputs required by PDFormer (DTW, Clustering).")
     args = parser.parse_args()
 
+<<<<<<< HEAD
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -476,6 +545,24 @@ def main():
     WINDOW_SIZE = 10
     FORECAST_HORIZON = 36
 
+=======
+    # --- Load Configuration from config---
+    config = PDFormerConfig()
+    
+    # 1. Paths (From Config)
+    RAW_DATA_FILE = config.raw_data_path
+    OUTPUT_DIR = config.processed_data_dir
+
+    # 2. Experimental Settings (From Config)
+    TRAIN_SPLIT = config.train_split
+    VAL_SPLIT = config.val_split
+    
+    # Note: Config uses 'input_window' and 'output_window' naming
+    WINDOW_SIZE = config.input_window       
+    FORECAST_HORIZON = config.output_window 
+
+    # 3. Local Constants (Not currently in Config)
+>>>>>>> origin/development
     CORRELATION_THRESHOLD = 0.7
     N_CLUSTERS = 16
 
@@ -485,6 +572,8 @@ def main():
         print(f"Created output directory: {OUTPUT_DIR}")
 
     print(f"--- Configuration ---")
+    print(f"Source Data: {RAW_DATA_FILE}")
+    print(f"Output Dir:  {OUTPUT_DIR}")
     print(f"Window Size: {WINDOW_SIZE} months")
     print(f"Forecast Horizon: {FORECAST_HORIZON} months")
     print(f"Splits: Train={TRAIN_SPLIT:.0%}, Val={VAL_SPLIT:.0%}, Test={1 - (TRAIN_SPLIT+VAL_SPLIT):.0%}")
@@ -496,12 +585,16 @@ def main():
         return
 
     # --- Step 1.2: Double Exponential Smoothing ---
+<<<<<<< HEAD
     # The paper explicitly mentions using DES with alpha=0.1 (Section 4.1 caption)
     # Applied BEFORE splitting to ensure the trend is captured cleanly
     df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)
+=======
+    df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
+>>>>>>> origin/development
 
     # --- Step 1.3: Split Data ---
-    train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT)
+    train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT, WINDOW_SIZE)
 
     # --- Step 2: Define Graph Structure ---
     adj_matrix = define_graph_structure(train_df, CORRELATION_THRESHOLD, OUTPUT_DIR)
@@ -513,9 +606,14 @@ def main():
     X_train, y_train = create_sliding_windows(train_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
+<<<<<<< HEAD
 
     # Check if windowing failed (e.g., if data was too short for the large horizon)
     if X_train is None:
+=======
+    
+    if X_train is None: 
+>>>>>>> origin/development
         print("Aborting: Windowing failed.")
         return
 
