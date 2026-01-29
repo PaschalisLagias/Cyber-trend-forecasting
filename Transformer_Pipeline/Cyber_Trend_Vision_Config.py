@@ -13,22 +13,26 @@ class CyberVisionTSConfig:
     ckpt_dir: Path = field(init=False)
 
     use_gpu: bool = True
-    num_workers: int = 4
+    num_workers: int = 0
     seed: int = 123
 
     train_split: float = 0.42
     val_split: float = 0.30
     test_split: float = 0.28
 
+    # PCA dimensionality reduction (applied during preprocessing)
+    apply_pca: bool = True
+    pca_variance_ratio: float = 0.999
+
     model_arch: str = "mae_base"
     mode: str = "zero_shot"
-    finetune_type: str = "ln"
+    finetune_type: str = "full"
     load_pretrained: bool = True
 
     epochs: int = 10
-    batch_size: int = 8
+    batch_size: int = 32
     learning_rate: float = 1e-4
-    patience: int = 5
+    patience: int = 50
 
     context_window_size: int = 10
     pred_window_size: int = 36

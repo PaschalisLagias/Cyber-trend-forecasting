@@ -1,5 +1,8 @@
 """
-Train_Vision.py - Training script for VisionTS model on cyber threat data.
+Train_VisionPP.py - Training script for VisionTS++ model on cyber threat data.
+
+VisionTS++ is an extended version designed for multivariate forecasting,
+using shared image space where all variables are rendered into a single image.
 """
 
 from __future__ import annotations
@@ -21,12 +24,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 from Cyber_Trend_Image_Dataset import CyberTrendImageDataset
-from Cyber_Trend_Vision_Config import CyberVisionTSConfig
+from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from Models.VisionTS_Wrapper import create_visionts_model
+from Models.VisionTSpp_Wrapper import create_visiontspp_model
 
 
 def set_random_seed(seed: int) -> None:
@@ -78,10 +81,65 @@ def compute_additional_metrics(preds: np.ndarray, trues: np.ndarray) -> dict:
     return {"mse": mse, "mae": mae, "rmse": rmse, "correlation": corr}
 
 
-class VisionTSTrainer:
-    """Trainer for VisionTS on cyber threat data."""
+class TemporalAwareLoss(nn.Module):
+    """Combined L1 + temporal difference + correlation loss for time series."""
 
-    def __init__(self, config: CyberVisionTSConfig, data_dir: Optional[str] = None) -> None:
+    def __init__(self, temporal_weight: float = 0.3, corr_weight: float = 0.3, eps: float = 1e-7):
+        super().__init__()
+        self.temporal_weight = temporal_weight
+        self.corr_weight = corr_weight
+        self.eps = eps
+        self.l1_loss = nn.L1Loss()
+
+    def pearson_correlation_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Differentiable Pearson correlation loss computed per-feature.
+
+        Args:
+            pred: (batch, time, features)
+            target: (batch, time, features)
+
+        Returns:
+            Loss = 1 - mean(per-feature correlation across time)
+        """
+        # Center the data along time dimension
+        pred_mean = pred.mean(dim=1, keepdim=True)  # (B, 1, F)
+        target_mean = target.mean(dim=1, keepdim=True)
+
+        pred_centered = pred - pred_mean
+        target_centered = target - target_mean
+
+        # Compute covariance and standard deviations
+        covariance = (pred_centered * target_centered).sum(dim=1)  # (B, F)
+        pred_std = torch.sqrt((pred_centered**2).sum(dim=1) + self.eps)
+        target_std = torch.sqrt((target_centered**2).sum(dim=1) + self.eps)
+
+        # Pearson correlation per feature: (B, F)
+        correlation = covariance / (pred_std * target_std + self.eps)
+
+        # Loss = 1 - mean correlation (want to maximize correlation)
+        return 1.0 - correlation.mean()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Static loss: absolute error
+        static_loss = self.l1_loss(pred, target)
+
+        # Temporal difference loss: match rate of change
+        # Shape: (batch, time, features) -> differences along time axis
+        pred_diff = pred[:, 1:, :] - pred[:, :-1, :]
+        target_diff = target[:, 1:, :] - target[:, :-1, :]
+        temporal_loss = self.l1_loss(pred_diff, target_diff)
+
+        # Correlation loss: maximize per-feature correlation
+        corr_loss = self.pearson_correlation_loss(pred, target)
+
+        return static_loss + self.temporal_weight * temporal_loss + self.corr_weight * corr_loss
+
+
+class VisionTSppTrainer:
+    """Trainer for VisionTS++ on cyber threat data."""
+
+    def __init__(self, config: CyberVisionTSppConfig, data_dir: Optional[str] = None) -> None:
         self.config = config
         self.data_dir = data_dir
         self.device = torch.device("cuda" if torch.cuda.is_available() and config.use_gpu else "cpu")
@@ -96,12 +154,15 @@ class VisionTSTrainer:
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=config.learning_rate,
         )
-        self.criterion = nn.L1Loss()  # MAE loss (same as Graph pipeline)
+        self.criterion = TemporalAwareLoss(
+            temporal_weight=config.temporal_weight,
+            corr_weight=config.corr_weight,
+        )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=config.epochs)
 
     def _build_model(self):
-        """Build the VisionTS model."""
-        print(f"\n--- Building VisionTS Model ---")
+        """Build the VisionTS++ model."""
+        print(f"\n--- Building VisionTS++ Model ---")
         print(f"Architecture: {self.config.model_arch}")
         print(f"Fine-tune type: {self.config.finetune_type}")
 
@@ -114,8 +175,16 @@ class VisionTSTrainer:
             "norm_const": self.config.norm_const,
             "align_const": self.config.align_const,
             "interpolation": self.config.interpolation,
+            "padding_mode": self.config.padding_mode,
+            # VisionTS++ specific
+            "quantile": self.config.quantile,
+            "quantile_head_num": self.config.quantile_head_num,
+            "color": self.config.color,
+            "clip_input": self.config.clip_input,
+            "complete_no_clip": self.config.complete_no_clip,
+            "num_patch_input": self.config.num_patch_input,
         }
-        model = create_visionts_model(
+        model = create_visiontspp_model(
             config=model_config,
             context_len=self.context_len,
             pred_len=self.pred_len,
@@ -142,6 +211,10 @@ class VisionTSTrainer:
 
         print(f"Dimensions: context_len={self.context_len}, pred_len={self.pred_len}, nvars={self.num_features}")
         print(f"Samples: train={len(train_dataset)}, val={len(val_dataset)}, test={len(test_dataset)}")
+
+        # Validate feature count for VisionTS++
+        if self.num_features > 224:
+            print(f"WARNING: {self.num_features} features exceeds VisionTS++ limit of 224!")
 
         # Validate datasets
         for name, ds in [("train", train_dataset), ("val", val_dataset), ("test", test_dataset)]:
@@ -240,7 +313,7 @@ class VisionTSTrainer:
         all_preds = torch.cat(all_preds, dim=0)
         all_targets = torch.cat(all_targets, dim=0)
 
-        # Compute primary metrics (same as Graph pipeline)
+        # Compute primary metrics
         rse, rae = compute_metrics(all_preds, all_targets)
 
         # Compute additional metrics
@@ -277,7 +350,7 @@ class VisionTSTrainer:
     def train(self) -> None:
         """Run full training loop."""
         print(f"\n{'=' * 50}")
-        print("Starting Training")
+        print("Starting VisionTS++ Training")
         print(f"{'=' * 50}")
 
         best_val_loss = float("inf")
@@ -308,7 +381,7 @@ class VisionTSTrainer:
                 best_val_loss = val_loss
                 patience_counter = 0
 
-                checkpoint_path = Path(self.config.checkpoint_dir) / "vision_best.pt"
+                checkpoint_path = Path(self.config.checkpoint_dir) / "visiontspp_best.pt"
                 checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save(
                     {
@@ -344,11 +417,11 @@ class VisionTSTrainer:
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train/test VisionTS model for cyber threat forecasting",
+        description="Train/test VisionTS++ model for cyber threat forecasting",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("--data_dir", type=str, default=None, help="Path to preprocessed data directory (recommended)")
+    parser.add_argument("--data_dir", type=str, default=None, help="Path to preprocessed data directory")
 
     # Training parameters
     parser.add_argument("--epochs", type=int, help="Number of training epochs")
@@ -365,6 +438,12 @@ def parse_args() -> argparse.Namespace:
         "--finetune_type", type=str, choices=["none", "ln", "bias", "full", "mlp", "attn"], help="Fine-tuning strategy"
     )
 
+    # VisionTS++ specific
+    parser.add_argument("--quantile", action="store_true", help="Enable quantile predictions")
+    parser.add_argument("--no_color", action="store_true", help="Disable color encoding")
+    parser.add_argument("--norm_const", type=float, help="Normalization constant")
+    parser.add_argument("--align_const", type=float, help="Alignment constant")
+
     # System parameters
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--num_workers", type=int, help="Number of data loader workers")
@@ -376,8 +455,14 @@ def main():
     args = parse_args()
 
     # Load config
-    config = CyberVisionTSConfig()
+    config = CyberVisionTSppConfig()
     config.update_from_dict(vars(args))
+
+    # Handle special args
+    if args.no_color:
+        config.color = False
+    if args.quantile:
+        config.quantile = True
 
     # Set random seed
     set_random_seed(config.seed)
@@ -385,11 +470,14 @@ def main():
 
     # Resolve data directory
     data_dir = args.data_dir
-    if data_dir is not None and not Path(data_dir).is_absolute():
+    if data_dir is None:
+        # Default to visionpp processed data
+        data_dir = str(config.output_dir)
+    elif not Path(data_dir).is_absolute():
         data_dir = str(SCRIPT_DIR / data_dir)
 
     # Create trainer
-    trainer = VisionTSTrainer(config, data_dir=data_dir)
+    trainer = VisionTSppTrainer(config, data_dir=data_dir)
 
     # Run based on mode
     if config.mode == "zero_shot":
@@ -397,14 +485,14 @@ def main():
     elif config.mode == "train":
         trainer.train()
         # Load best model and test
-        checkpoint_path = Path(config.checkpoint_dir) / "vision_best.pt"
+        checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
         if checkpoint_path.exists():
             checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
             print(f"Loaded best model from epoch {checkpoint['epoch'] + 1}")
         trainer.test()
     elif config.mode == "test":
-        checkpoint_path = Path(config.checkpoint_dir) / "vision_best.pt"
+        checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
         if checkpoint_path.exists():
             checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
