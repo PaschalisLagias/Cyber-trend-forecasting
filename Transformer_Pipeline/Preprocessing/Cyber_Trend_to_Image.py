@@ -14,7 +14,27 @@ from sklearn.decomposition import PCA
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 # Local imports - using project filename conventions
-from .Load_Data import load_cyber_threat_data
+try:
+    from .Load_Data import load_cyber_threat_data
+except ImportError:
+    from Load_Data import load_cyber_threat_data
+
+
+# Features required for consistency with Graph vignette visualizations
+REQUIRED_VIGNETTE_FEATURES = [
+    # Validation nodes (Figure 3 equivalents)
+    "Password Attack-ALL",
+    "Solution_NLP/LLM_Papers",
+    "Solution_DATA_BACKUPS_Papers",
+    # Continuous trends (Figure 4)
+    "Malware-ALL",
+    "Vulnerability-ALL",
+    "Ransomware-ALL",
+    "Papers_Adversarial_Attack",
+    # Key gap analysis threats
+    "DDoS-ALL",
+    "Phishing-ALL",
+]
 
 
 # ------------------- Preprocessing Functions -------------------
@@ -239,7 +259,7 @@ def select_features_by_pca_importance(train_data, val_data, test_data, n_feature
 
 def select_features_hybrid(train_data, val_data, test_data, n_features=224,
                            variance_threshold=0.01, correlation_threshold=0.95,
-                           output_dir=None):
+                           output_dir=None, forced_features=None, all_column_names=None):
     """
     Hybrid feature selection combining variance filtering, correlation removal,
     and PCA importance ranking.
@@ -248,6 +268,7 @@ def select_features_hybrid(train_data, val_data, test_data, n_features=224,
     1. Remove features with variance below threshold (near-constant)
     2. Remove highly correlated features (keep one from each correlated pair)
     3. Select top N by PCA importance from remaining features
+    4. If forced_features provided, ensure they are included (replacing lowest-importance features)
 
     Args:
         train_data: Training data array of shape (T_train, n_features)
@@ -257,6 +278,8 @@ def select_features_hybrid(train_data, val_data, test_data, n_features=224,
         variance_threshold: Minimum variance for feature inclusion (default: 0.01)
         correlation_threshold: Maximum correlation before removing redundant feature (default: 0.95)
         output_dir: Directory to save feature selection info (optional)
+        forced_features: List of feature names that must be included (optional)
+        all_column_names: Array of all column names to map forced feature names to indices (required if forced_features is provided)
 
     Returns:
         tuple: (train_selected, val_selected, test_selected, selected_indices, selection_info)
@@ -268,6 +291,21 @@ def select_features_hybrid(train_data, val_data, test_data, n_features=224,
     val_np = val_data.values if hasattr(val_data, 'values') else val_data
     test_np = test_data.values if hasattr(test_data, 'values') else test_data
     original_n = train_np.shape[1]
+
+    # Step 0: Identify forced feature indices (if any)
+    forced_indices = []
+    forced_names_found = []
+    if forced_features is not None and all_column_names is not None:
+        all_names_list = list(all_column_names)
+        for feat in forced_features:
+            if feat in all_names_list:
+                forced_indices.append(all_names_list.index(feat))
+                forced_names_found.append(feat)
+            else:
+                print(f"  Warning: Forced feature '{feat}' not found in data")
+        print(f"  Step 0 - Forced features: {len(forced_names_found)} of {len(forced_features)} found")
+        if forced_names_found:
+            print(f"    Found: {forced_names_found}")
 
     # Step 1: Variance filtering
     variances = np.var(train_np, axis=0)
@@ -299,7 +337,7 @@ def select_features_hybrid(train_data, val_data, test_data, n_features=224,
     # Step 3: PCA importance on filtered features
     train_for_pca = train_np[:, filtered_indices]
 
-    if n_after_corr <= n_features:
+    if n_after_corr <= n_features and not forced_indices:
         # Use all remaining features
         selected_indices = filtered_indices
         print(f"  Step 3 - Using all {n_after_corr} remaining features (< target {n_features})")
@@ -311,9 +349,43 @@ def select_features_hybrid(train_data, val_data, test_data, n_features=224,
 
         loadings = np.abs(pca.components_)
         feature_importance = loadings.max(axis=0)
-        top_k = np.argsort(feature_importance)[::-1][:n_features]
-        selected_indices = filtered_indices[np.sort(top_k)]
-        print(f"  Step 3 - PCA importance: {n_after_corr} -> {n_features}")
+
+        if forced_indices:
+            # Step 4: Force-include required features
+            forced_not_filtered = [idx for idx in forced_indices if idx not in filtered_indices]
+
+            if forced_not_filtered:
+                print(f"  Note: {len(forced_not_filtered)} forced features didn't pass filters - including anyway")
+
+            # All forced indices (whether filtered or not)
+            all_forced = set(forced_indices)
+
+            # Get remaining slots from filtered features (excluding forced ones)
+            remaining_slots = n_features - len(forced_indices)
+
+            if remaining_slots > 0:
+                # Rank filtered features by importance, excluding forced ones
+                filtered_idx_to_importance = {}
+                for i, orig_idx in enumerate(filtered_indices):
+                    if orig_idx not in all_forced:
+                        filtered_idx_to_importance[orig_idx] = feature_importance[i]
+
+                # Sort by importance and take top remaining_slots
+                sorted_by_importance = sorted(filtered_idx_to_importance.items(),
+                                              key=lambda x: x[1], reverse=True)
+                top_remaining = [idx for idx, _ in sorted_by_importance[:remaining_slots]]
+
+                # Combine forced + top remaining, then sort to maintain original order
+                selected_indices = np.array(sorted(list(all_forced) + top_remaining))
+            else:
+                # More forced features than n_features - just use forced
+                selected_indices = np.array(sorted(forced_indices))
+
+            print(f"  Step 3 - Forced inclusion: {len(forced_indices)} forced + {remaining_slots} by importance = {len(selected_indices)}")
+        else:
+            top_k = np.argsort(feature_importance)[::-1][:n_features]
+            selected_indices = filtered_indices[np.sort(top_k)]
+            print(f"  Step 3 - PCA importance: {n_after_corr} -> {n_features}")
 
     # Extract selected features
     train_selected = train_np[:, selected_indices]
@@ -525,6 +597,8 @@ def main():
     parser.add_argument("--window-first", action="store_true", help="Window entire dataset first, then split (more training samples)")
     parser.add_argument("--context-len", type=int, default=36, help="Context window size in months (default: 36)")
     parser.add_argument("--pred-len", type=int, default=36, help="Prediction horizon in months (default: 36)")
+    parser.add_argument("--force-vignette-features", action="store_true",
+                        help="Force inclusion of features required for vignette comparison with Graph pipeline")
     args = parser.parse_args()
 
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
@@ -621,13 +695,18 @@ def main():
             val_portion = df_processed.iloc[train_portion_end:int(len(df_processed) * (TRAIN_SPLIT + VAL_SPLIT))]
             test_portion = df_processed.iloc[int(len(df_processed) * (TRAIN_SPLIT + VAL_SPLIT)):]
 
+            # Get forced features if requested
+            forced_feats = REQUIRED_VIGNETTE_FEATURES if args.force_vignette_features else None
+
             # Get selected features using hybrid method
             _, _, _, selected_indices, selection_info = select_features_hybrid(
                 train_portion, val_portion, test_portion,
                 n_features=N_FEATURES,
                 variance_threshold=VARIANCE_THRESHOLD,
                 correlation_threshold=CORRELATION_THRESHOLD,
-                output_dir=OUTPUT_DIR
+                output_dir=OUTPUT_DIR,
+                forced_features=forced_feats,
+                all_column_names=df_raw.columns.values
             )
 
             # Apply selection to ALL data
@@ -722,13 +801,18 @@ def main():
 
         # --- Step 3: Apply Dimensionality Reduction (if enabled) ---
         if APPLY_HYBRID_SELECTION:
+            # Get forced features if requested
+            forced_feats = REQUIRED_VIGNETTE_FEATURES if args.force_vignette_features else None
+
             # Hybrid feature selection: variance + correlation + PCA importance
             train_data, val_data, test_data, selected_indices, _ = select_features_hybrid(
                 train_df, val_df, test_df,
                 n_features=N_FEATURES,
                 variance_threshold=VARIANCE_THRESHOLD,
                 correlation_threshold=CORRELATION_THRESHOLD,
-                output_dir=OUTPUT_DIR
+                output_dir=OUTPUT_DIR,
+                forced_features=forced_feats,
+                all_column_names=df_raw.columns.values
             )
             num_features = len(selected_indices)
             selected_feature_names = df_raw.columns.values[selected_indices]

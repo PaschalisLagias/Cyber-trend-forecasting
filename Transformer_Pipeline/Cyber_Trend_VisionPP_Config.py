@@ -25,12 +25,12 @@ class CyberVisionTSppConfig:
     # Feature selection (VisionTS++ works better with selected features)
     # Max 224 features due to shared image space (1 pixel per feature at max)
     use_feature_selection: bool = True
-    n_features: int = 224
+    n_features: int = 25  # Optimal feature count
 
     # Model architecture
     model_arch: str = "mae_base"
     mode: str = "train"
-    finetune_type: str = "full"
+    finetune_type: str = "ln"  # Layer norm only - optimal for small data
     load_pretrained: bool = True
 
     # Training parameters
