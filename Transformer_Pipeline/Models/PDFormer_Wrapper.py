@@ -144,10 +144,13 @@ class PDFormer_Wrapper(nn.Module):
         if isinstance(batch, torch.Tensor):
             batch = {'X': batch}
         
-        # 2. CRITICAL: Enforce Float32 on input data
+        # 2. Patch: Enforce Float32 on input data
         # Data loaders often output Float64 (Double) which crashes the model
-        if 'X' in batch and batch['X'].dtype == torch.float64:
-            batch['X'] = batch['X'].float()
+        try:
+            if batch['X'].dtype == torch.float64:
+                batch['X'] = batch['X'].float()
+        except (KeyError, TypeError):
+            pass
 
         # Pass the Laplacian buffer explicitly
         y_predicted = self.pdformer_engine.predict(batch, self.lap_mx)
