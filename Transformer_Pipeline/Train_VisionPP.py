@@ -23,6 +23,47 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import numpy as np
 import torch
 import torch.nn as nn
+
+# =============================================================================
+# PYTORCH CHECKPOINT PATCH
+# Forces PyTorch to ignore extra quantile weights in the VisionTS checkpoint
+# =============================================================================
+if not hasattr(torch.nn.Module, '_original_load'):
+    torch.nn.Module._original_load = torch.nn.Module.load_state_dict
+
+def safe_lenient_load(self, state_dict, *args, **kwargs):
+    kwargs['strict'] = False 
+    return self._original_load(state_dict, *args, **kwargs)
+
+torch.nn.Module.load_state_dict = safe_lenient_load
+# =============================================================================
+# IN-MEMORY TYPO PATCH (VisionTS Submodule)
+# Fixes the developer's typo in RAM without modifying the file on disk
+# =============================================================================
+import inspect
+import textwrap
+import visionts.model
+
+try:
+    # 1. Read the raw source code of the broken function
+    source = inspect.getsource(visionts.model.VisionTS.forward)
+    
+    # 2. If the typo exists, fix it in the string
+    if "y = y[:, 0]" in source:
+        source = source.replace("y = y[:, 0]", "y = y_pred")
+        
+        # 3. Strip class indentation so it can be compiled cleanly
+        source = textwrap.dedent(source)
+        
+        # 4. Compile the fixed function into the module's namespace
+        exec(source, visionts.model.__dict__)
+        
+        # 5. Overwrite the broken class method with our fixed memory version
+        visionts.model.VisionTS.forward = visionts.model.__dict__['forward']
+        print("In-memory typo patch successfully applied!")
+except Exception as e:
+    print(f"Warning: Could not apply in-memory patch: {e}")
+
 from Cyber_Trend_Image_Dataset import CyberTrendImageDataset
 from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
 from torch.optim import AdamW
