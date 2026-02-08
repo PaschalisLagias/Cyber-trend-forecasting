@@ -4,6 +4,8 @@ import sys
 import json
 import argparse
 import time
+from datetime import datetime
+import shutil
 
 # Import Third-party imports
 import torch
@@ -92,6 +94,10 @@ def main():
                         help="Override for number of epochs.")
     parser.add_argument('--batch_size', type=int, default=None, 
                         help="Override for batch size.")
+
+    # Master Loop Argument
+    parser.add_argument('--num_runs', type=int, default=1, 
+                        help="Number of times to restart training for best-of-N.")                    
     
     args = parser.parse_args()
     
@@ -168,125 +174,106 @@ def main():
     print(f"Auto-configured Model: Nodes={config.num_nodes}, Input Dim={config.feature_dim}")
 
 
-    # # --- DEBUGGING BLOCK: Inspect static_features ---
-    # print("\n--- Inspecting static_features ---")
-    # if static_features is None:
-    #     print("static_features is None! This is the problem.")
-    # else:
-    #     print(f"Keys available: {list(static_features.keys())}")
-    #     for key, value in static_features.items():
-    #         # Check if the value is a tensor or numpy array to print its shape
-    #         if hasattr(value, 'shape'):
-    #             print(f"Key: '{key}' | Shape: {value.shape}")
-    #         else:
-    #             print(f"Key: '{key}' | Type: {type(value)} (No shape attribute)")
-    # print("------------------------------------\n")
-    # # ----------------------------------------------
+    # --- MASTER TRAINING LOOP ---
+    global_best_val_loss = float('inf')
+    current_save_path = None
 
-    # if 'adj_mx' in static_features:
-    #     real_node_count = static_features['adj_mx'].shape[0]
-        
-    #     # Use getattr() to safely read the current value (defaults to 'Unknown' if missing)
-    #     current_val = getattr(config, 'num_nodes', 'Unknown')
-    #     print(f"DEBUG: Overwriting config.num_nodes from {current_val} to {real_node_count}")
-        
-    #     # Use dot notation to set the value on the object
-    #     config.num_nodes = real_node_count
-        
-    #     # Update 'num_vertex' if the object has that attribute
-    #     if hasattr(config, 'num_vertex'):
-    #          config.num_vertex = real_node_count
-    # # -----------------------------------------------------
-
-    # 4c. Initialise Model
-    model = PDFormer_Wrapper(model_config=config, data_feature=static_features).to(device)
-    
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model initialised. Total trainable parameters: {total_params}")
-
-    # --- 5. Training Components ---
-    print("\n--- 5. Setting up Loss and Optimiser ---")
-    
-    loss_fn = nn.L1Loss() # MAE Loss
-    optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.max_epoch)
-    
-    # --- 6. Training Loop ---
-    print("\n--- 6. Starting Training ---")
-    
-    # Path to save the best model
-    # We save it in the 'Models' folder inside the pipeline
-    save_path = os.path.join(SCRIPT_DIR, 'Models', 'best_model_graph.pth')
-    
-    best_val_loss = float('inf') # Track the best score
-    
-    for epoch in range(config.max_epoch):
-        start_time = time.time()
-        model.train()
-        train_epoch_loss = 0.0
-        
-        for i, batch in enumerate(train_loader):
-            batch.to_tensor(device)
-            y_true = batch['y'] 
-            
-            optimizer.zero_grad()
-            y_predicted = model(batch)
-            loss = loss_fn(y_predicted, y_true)
-            
-            loss.backward()
-            optimizer.step()
-            train_epoch_loss += loss.item()
-        
-        avg_train_loss = train_epoch_loss / len(train_loader)
-        
-        # --- Validation Loop ---
-        model.eval()
-        val_epoch_loss = 0.0
-        val_preds_list = []
-        val_targets_list = []
-        
-        with torch.no_grad():
-            for batch in val_loader:
-                batch.to_tensor(device)
-                y_true = batch['y']
-                y_predicted = model(batch)
-                
-                loss = loss_fn(y_predicted, y_true)
-                val_epoch_loss += loss.item()
-                
-                val_preds_list.append(y_predicted.cpu())
-                val_targets_list.append(y_true.cpu())
-
-        avg_val_loss = val_epoch_loss / len(val_loader)
-        
-        # Calculate Paper Metrics
-        all_val_preds = torch.cat(val_preds_list, dim=0)
-        all_val_targets = torch.cat(val_targets_list, dim=0)
-        val_rse, val_rae = compute_metrics(all_val_preds, all_val_targets)
-        
-        scheduler.step()
-        
-        # --- SAVE MODEL IF BEST ---
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            
-            # Save the state dictionary (weights only)
-            torch.save(model.state_dict(), save_path)
-            save_msg = f"💾 Saved New Best Model (Loss: {best_val_loss:.4f})"
+    for run in range(args.num_runs):
+        if args.num_runs > 1:
+            print(f"\n{'='*50}\nStarting Initialisation Run {run + 1}/{args.num_runs}\n{'='*50}")
         else:
-            save_msg = ""
-        
-        epoch_time = time.time() - start_time
-        print(f"Epoch {epoch+1}/{config.max_epoch} | "
-              f"Time: {epoch_time:.1f}s | "
-              f"Train Loss: {avg_train_loss:.4f} | "
-              f"Val Loss: {avg_val_loss:.4f} | "
-              f"RSE: {val_rse:.4f} | "
-              f"{save_msg}")
+            print("\n--- Initialising Model & Starting Training ---")
 
-    print(f"\n--- Training Complete. Best Model Saved to: {save_path} ---")
+        # Must re-initialise model, optimizer, and scheduler inside the loop for a fresh start
+        model = PDFormer_Wrapper(model_config=config, data_feature=static_features).to(device)
+        loss_fn = nn.L1Loss()
+        optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.max_epoch)
+        
+        for epoch in range(config.max_epoch):
+            start_time = time.time()
+            model.train()
+            train_epoch_loss = 0.0
+            
+            for batch in train_loader:
+                batch.to_tensor(device)
+                y_true = batch['y'] 
+                
+                optimizer.zero_grad()
+                y_predicted = model(batch)
+                loss = loss_fn(y_predicted, y_true)
+                
+                loss.backward()
+                optimizer.step()
+                train_epoch_loss += loss.item()
+            
+            avg_train_loss = train_epoch_loss / len(train_loader)
+            
+            # Validation
+            model.eval()
+            val_epoch_loss = 0.0
+            val_preds_list = []
+            val_targets_list = []
+            
+            with torch.no_grad():
+                for batch in val_loader:
+                    batch.to_tensor(device)
+                    y_true = batch['y']
+                    y_predicted = model(batch)
+                    
+                    loss = loss_fn(y_predicted, y_true)
+                    val_epoch_loss += loss.item()
+                    
+                    val_preds_list.append(y_predicted.cpu())
+                    val_targets_list.append(y_true.cpu())
+
+            avg_val_loss = val_epoch_loss / len(val_loader)
+            all_val_preds = torch.cat(val_preds_list, dim=0)
+            all_val_targets = torch.cat(val_targets_list, dim=0)
+            val_rse, val_rae = compute_metrics(all_val_preds, all_val_targets)
+            scheduler.step()
+            
+            # --- GLOBAL SAVE LOGIC ---
+            if avg_val_loss < global_best_val_loss:
+                global_best_val_loss = avg_val_loss
+                timestamp = datetime.now().strftime("%b%d")
+                
+                if args.num_runs > 1:
+                    new_save_name = f"best_{args.num_runs}_model_graph_{timestamp}_{global_best_val_loss:.4f}.pth"
+                else:
+                    new_save_name = "best_model_graph.pth"
+                    
+                new_save_path = os.path.join(SCRIPT_DIR, 'Models', new_save_name)
+                
+                # Delete the older file from this master run to prevent clutter
+                if current_save_path and current_save_path != new_save_path and os.path.exists(current_save_path):
+                    os.remove(current_save_path)
+                
+                os.makedirs(os.path.dirname(new_save_path), exist_ok=True)
+                torch.save(model.state_dict(), new_save_path)
+                current_save_path = new_save_path
+                
+                save_msg = f"Saved New Global Best (Loss: {global_best_val_loss:.4f})"
+            else:
+                save_msg = ""
+            
+            epoch_time = time.time() - start_time
+            print(f"Epoch {epoch+1}/{config.max_epoch} | "
+                  f"Time: {epoch_time:.1f}s | "
+                  f"Train Loss: {avg_train_loss:.4f} | "
+                  f"Val Loss: {avg_val_loss:.4f} | "
+                  f"RSE: {val_rse:.4f} | RAE: {val_rae:.4f} | "
+                  f"{save_msg}")
+
+    print(f"\n--- Master Training Complete. Ultimate Model Saved to: {current_save_path} ---")
+
+    # --- Bridge to Evaluation Script ---
+    # Takes the ultimate winning model and copy it to a standard file named 'best_model_graph.pth'
+    standard_save_path = os.path.join(SCRIPT_DIR, 'Models', 'best_model_graph.pth')
+    if current_save_path and os.path.exists(current_save_path):
+        shutil.copy(current_save_path, standard_save_path)
+        print(f"--- Copied to {standard_save_path} for Evaluation Pipeline ---")
+
 
 if __name__ == '__main__':
     main()
