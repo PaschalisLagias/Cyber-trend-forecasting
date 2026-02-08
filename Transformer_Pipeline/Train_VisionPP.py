@@ -11,6 +11,8 @@ import argparse
 import random
 import sys
 import time
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -57,12 +59,11 @@ try:
         
         # 4. Compile the fixed function into the module's namespace
         exec(source, visionts.model.__dict__)
-        
-        # 5. Overwrite the broken class method with our fixed memory version
         visionts.model.VisionTS.forward = visionts.model.__dict__['forward']
         print("In-memory typo patch successfully applied!")
 except Exception as e:
     print(f"Warning: Could not apply in-memory patch: {e}")
+# =============================================================================
 
 from Cyber_Trend_Image_Dataset import CyberTrendImageDataset
 from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
@@ -488,6 +489,9 @@ def parse_args() -> argparse.Namespace:
     # System parameters
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--num_workers", type=int, help="Number of data loader workers")
+    
+    # Update: Master Loop Argument
+    parser.add_argument("--num_runs", type=int, default=1, help="Number of times to restart training for best-of-N.")
 
     return parser.parse_args()
 
@@ -508,6 +512,8 @@ def main():
     # Set random seed
     set_random_seed(config.seed)
     print(f"Random seed: {config.seed}")
+    # best of run(s)
+    print(f"Master Loop: Running best of {args.num_runs} initialisation(s)")
 
     # Resolve data directory
     data_dir = args.data_dir
@@ -517,28 +523,75 @@ def main():
     elif not Path(data_dir).is_absolute():
         data_dir = str(SCRIPT_DIR / data_dir)
 
-    # Create trainer
-    trainer = VisionTSppTrainer(config, data_dir=data_dir)
+    if config.mode == "train":
+        global_best_val_loss = float('inf')
+        current_best_model_path = None
+        
+        # --- MASTER TRAINING LOOP ---
+        for run in range(args.num_runs):
+            if args.num_runs > 1:
+                print(f"\n{'='*50}\nStarting Initialization Run {run + 1}/{args.num_runs}\n{'='*50}")
+                
+            # Must re-instantiate trainer inside the loop for a fresh start
+            trainer = VisionTSppTrainer(config, data_dir=data_dir)
+            trainer.train()
+            
+            # Extract the best loss from Brayden's internal temporary file
+            checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
+            if checkpoint_path.exists():
+                checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
+                run_best_val_loss = checkpoint.get("val_loss", float('inf'))
+                
+                # --- GLOBAL SAVE LOGIC ---
+                if run_best_val_loss < global_best_val_loss:
+                    global_best_val_loss = run_best_val_loss
+                    timestamp = datetime.now().strftime("%b%d")
+                    
+                    if args.num_runs > 1:
+                        new_name = f"best_{args.num_runs}_model_visionpp_{timestamp}_{global_best_val_loss:.4f}.pth"
+                    else:
+                        new_name = "best_model_visionpp.pth"
+                        
+                    new_save_path = Path(SCRIPT_DIR) / "Models" / new_name
+                    new_save_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Delete the older file from this master run to prevent clutter
+                    if current_best_model_path and current_best_model_path != new_save_path and current_best_model_path.exists():
+                        current_best_model_path.unlink()
+                        
+                    shutil.copy(checkpoint_path, new_save_path)
+                    current_best_model_path = new_save_path
+                    print(f"\n🌟 New global best found! Saved to: {new_save_path}")
 
-    # Run based on mode
-    if config.mode == "zero_shot":
-        trainer.zero_shot_eval()
-    elif config.mode == "train":
-        trainer.train()
-        # Load best model and test
-        checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
-        if checkpoint_path.exists():
-            checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
-            trainer.model.load_state_dict(checkpoint["model_state_dict"])
-            print(f"Loaded best model from epoch {checkpoint['epoch'] + 1}")
+        # After the master loop finishes, load the ultimate global best model for testing
+        if current_best_model_path and current_best_model_path.exists():
+            final_checkpoint = torch.load(current_best_model_path, map_location=trainer.device)
+            trainer.model.load_state_dict(final_checkpoint["model_state_dict"])
+            print(f"\n{'='*50}\nLoaded ULTIMATE global model for testing from {current_best_model_path}\n{'='*50}")
+            
+            # --- Bridge to Evaluation Script ---
+            # 1. Overwrite temporary file with the true global best
+            shutil.copy(current_best_model_path, Path(config.checkpoint_dir) / "visiontspp_best.pt")
+            
+            # 2. Save a standard named file in the Models folder for consistency
+            standard_save_path = Path(SCRIPT_DIR) / "Models" / "best_model_visionpp.pth"
+            shutil.copy(current_best_model_path, standard_save_path)
+            print(f"--- Copied to {standard_save_path} for Evaluation Pipeline ---")
+            
         trainer.test()
+        
     elif config.mode == "test":
+        trainer = VisionTSppTrainer(config, data_dir=data_dir)
         checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
         if checkpoint_path.exists():
             checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
             print(f"Loaded checkpoint from {checkpoint_path}")
         trainer.test()
+        
+    elif config.mode == "zero_shot":
+        trainer = VisionTSppTrainer(config, data_dir=data_dir)
+        trainer.zero_shot_eval()
 
 
 if __name__ == "__main__":
