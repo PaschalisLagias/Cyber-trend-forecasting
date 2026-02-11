@@ -140,17 +140,26 @@ def evaluate():
 
     # 6. Generate Metrics Table
     print("--- Calculating Metrics per Horizon ---")
-    horizons = [3, 6, 12, 24]
     results_list = []
+    max_h = preds_unscaled.shape[1]
+
+    # 1. Detailed Horizon Breakdown (First)
+    horizons = [3, 6, 12, 24]
 
     for h in horizons:
-        # Slice data up to horizon h
-        p_slice = preds_unscaled[:, :h, :]
-        t_slice = trues_unscaled[:, :h, :]
-        
-        metrics = calculate_all_metrics(p_slice, t_slice)
-        metrics['Horizon'] = f"{h} Months"
-        results_list.append(metrics)
+        if h < max_h:
+            # Slice data up to horizon h
+            p_slice = preds_unscaled[:, :h, :]
+            t_slice = trues_unscaled[:, :h, :]
+            
+            metrics = calculate_all_metrics(p_slice, t_slice)
+            metrics['Horizon'] = f"{h} Months"
+            results_list.append(metrics)
+
+    # 2. Overall Summary (Bottom Row)
+    overall_metrics = calculate_all_metrics(preds_unscaled[:, :max_h, :], trues_unscaled[:, :max_h, :])
+    overall_metrics['Horizon'] = 'Overall'
+    results_list.append(overall_metrics)
 
     # Create DataFrame and Save
     results_df = pd.DataFrame(results_list)
