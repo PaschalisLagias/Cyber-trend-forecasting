@@ -37,6 +37,9 @@ except ImportError:
     sys.path.append(str(current_dir))
     from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
 
+    # Global timestamp for the Double Save Archive
+RUN_TIMESTAMP = datetime.now().strftime("%b%d_%H%M%S")
+
 # ------------------- Helper Functions -------------------
 
 def exponential_smoothing(series, alpha=0.1):
@@ -174,6 +177,26 @@ def generate_date_labels_forward(start_date, num_steps):
     return dates
 
 
+def double_save_figure(output_dir, filename):
+    """Saves the current matplotlib figure to the main dir and a timestamped archive."""
+    # 1. Save static file for README/Dashboard
+    main_path = output_dir / filename
+    plt.savefig(main_path, dpi=300, bbox_inches='tight')
+    
+    # 2. Save timestamped archive copy
+    archive_dir = output_dir / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    name, ext = os.path.splitext(filename)
+    archive_path = archive_dir / f"{name}_{RUN_TIMESTAMP}{ext}"
+    plt.savefig(archive_path, dpi=300, bbox_inches='tight')
+    
+    print(f"Saved: {filename} (and archived to {archive_dir.name}/)")
+    
+    # 3. FORCE THE NOTEBOOK TO DISPLAY IT
+    plt.show()
+    plt.close()
+
+
 def save_table_as_image(df, title, output_dir):
     """
     Saves a pandas DataFrame as both a LaTeX file and a PNG image.
@@ -183,29 +206,39 @@ def save_table_as_image(df, title, output_dir):
         title (str): The title of the table (used for filename and plot title).
         output_dir (Path): The directory where files will be saved.
     """
-    if df.empty:
-        return
+    if df.empty: return
     latex_path = output_dir / f"{title}.tex"
     with open(latex_path, 'w') as f:
         f.write(df.to_latex(index=False, float_format="%.3f"))
-
-    fig, ax = plt.subplots(figsize=(10, len(df) * 0.5 + 1))
-    ax.axis('tight')
-    ax.axis('off')
-    table = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center')
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1.2, 1.5)
+    
+    # Enforce strict 3-decimal formatting for display (e.g., 0.500 instead of 0.5)
+    display_df = df.copy()
+    for col in display_df.select_dtypes(include=['float', 'float64']).columns:
+        display_df[col] = display_df[col].apply(lambda x: f"{x:.3f}")
+    
+    fig, ax = plt.subplots(figsize=(10, len(display_df) * 0.5 + 1))
+    ax.axis('tight'); ax.axis('off')
+    
+    # Pass the strictly formatted string values to the table
+    table = ax.table(cellText=display_df.values, colLabels=display_df.columns, loc='center', cellLoc='center')
+    table.auto_set_font_size(False); table.set_fontsize(10); table.scale(1.2, 1.5)
+    
+    # Apply the matched evaluation table styling
     for (row, col), cell in table.get_celld().items():
-        if row == 0:
+        if row == 0: 
+            # Header Row: Darker gray background, standard border
             cell.set_text_props(weight='bold')
-            cell.set_facecolor('#f2f2f2')
-
+            cell.set_facecolor('#d9d9d9')
+            cell.set_edgecolor('gray')
+        else:
+            # Standard Data Rows: White background, thin borders (No bottom highlight)
+            cell.set_edgecolor('gray')
+            cell.set_linewidth(0.5)
+    
     plt.title(title.replace('_', ' '), fontsize=14, pad=10)
-    img_path = output_dir / f"{title}.png"
-    plt.savefig(img_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"Saved {title} to: {img_path}")
+    
+    # Double Save Logic
+    double_save_figure(output_dir, f"{title}.png")
 
 
 def load_full_history(config, col_names):
@@ -269,7 +302,9 @@ def load_visualisation_data():
     """
     config = CyberVisionTSppConfig()
     data_dir = current_dir / "Results"
-    plot_output_dir = data_dir / 'plots_paper_style'
+    
+    # FOLDER SEPARATION FIX: Changed from 'plots_paper_style' to 'vision_plots'
+    plot_output_dir = data_dir / 'vision_plots'
     plot_output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
@@ -382,10 +417,7 @@ def perform_broad_analysis(data):
     ax.grid(True, alpha=0.3, linestyle=':')
     ax.legend(loc='upper left')
 
-    plt.tight_layout()
-    plt.savefig(out_dir / 'Global_Forecast_Accuracy.png', dpi=300)
-    print("Generated Plot: Global Forecast Accuracy")
-    plt.show()
+    double_save_figure(out_dir, 'Global_Forecast_Accuracy.png')
 
     # --- Part B: GAP ANALYSIS (Global Average) ---
     print("\n" + "=" * 60)
@@ -430,10 +462,7 @@ def perform_broad_analysis(data):
         ax.grid(True, alpha=0.3, linestyle=':')
         ax.legend(loc='upper left')
 
-        plt.tight_layout()
-        plt.savefig(out_dir / 'Global_Gap_Analysis.png', dpi=300)
-        print("Generated Plot: Global Gap Analysis")
-        plt.show()
+        double_save_figure(out_dir, 'Global_Gap_Analysis.png')
     else:
         print(f"Warning: Could not classify threats ({len(threat_indices)}) and solutions ({len(solution_indices)}) from graph.csv")
 
@@ -484,10 +513,7 @@ def plot_validation_forecasts(data):
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
         ax.legend(loc='upper left', fontsize=10)
 
-        plt.tight_layout()
-        plt.savefig(out_dir / f'Fig3_{sanitise_filename(k)}.png', dpi=300)
-        print(f"Displaying Plot: Fig 3 - {clean_string(k)}")
-        plt.show()
+        double_save_figure(out_dir, f'Fig3_{sanitise_filename(k)}.png')
 
     # 2. Grid View (All Nodes)
     print("\n--- Generating Grid View (All Validation Nodes) ---")
@@ -522,10 +548,7 @@ def plot_validation_forecasts(data):
         for j in range(i + 1, len(axes)):
             axes[j].axis('off')
 
-        plt.tight_layout()
-        plt.savefig(out_dir / 'Fig3_Grid_View_All.png', dpi=300)
-        print(f"Generated Grid Plot: All Validation Nodes ({n_plots} items)")
-        plt.show()
+        double_save_figure(out_dir, 'Fig3_Grid_View_All.png')
 
 
 def generate_gap_analysis_tables(data):
@@ -626,13 +649,20 @@ def plot_continuous_trends(data):
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
 
     for k in keys:
-        match = next((g for g in groups if clean_string(k).lower() in clean_string(g).lower()), None)
-        if not match:
-            print(f"  Skipping {k}: not found in graph.csv")
+        # Loosened string matching to prevent silent skipping
+        match = None
+        for g in groups:
+            if clean_string(k).lower() in clean_string(g).lower() or clean_string(g).lower() in clean_string(k).lower():
+                match = g
+                break
+                
+        if not match: 
+            print(f"WARNING: Skipping '{k}' plot! Could not find a match in graph.csv")
             continue
+            
         idx = find_col_index(match, cols)
-        if idx is None:
-            print(f"  Skipping {k}: not found in selected features")
+        if idx is None: 
+            print(f"WARNING: Skipping '{k}' plot! Found in graph but missing from node_names.npy")
             continue
 
         sm_full = exponential_smoothing(normalise_series(full[:, idx]))
@@ -665,10 +695,65 @@ def plot_continuous_trends(data):
         plt.xticks(rotation=45)
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper left')
-        plt.savefig(out_dir / f'Fig4_{sanitise_filename(k)}.png', dpi=300)
-        print(f"Displaying Plot: Fig 4 - {clean_string(k)}")
-        plt.show()
+        double_save_figure(out_dir, f'Fig4_{sanitise_filename(k)}.png')
 
+
+def visualise_evaluation_metrics():
+    """
+    Loads the evaluation CSV and generates a publication-ready table image.
+    Executes the Double-Save archive logic for safe historic tracking.
+    """
+    print("\n--- Generating Evaluation Metrics Table ---")
+    
+    # FIX: Added 'pp' to the filename so it reads the correct data!
+    csv_path = current_dir / "Results" / 'visionpp_evaluation_results.csv'
+    output_dir = current_dir / "Results" / 'vision_plots'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    if not os.path.exists(csv_path):
+        print(f"Error: Evaluation CSV not found at {csv_path}")
+        return
+        
+    df = pd.read_csv(csv_path).round(3)
+    
+    # Made figure slightly taller to fit the footnote
+    fig, ax = plt.subplots(figsize=(8, len(df) * 0.5 + 1.2))
+    ax.axis('tight')
+    ax.axis('off')
+
+    table = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(11)
+    table.scale(1.2, 1.8)
+
+    # Determine the index of the last row ("Overall")
+    last_row_idx = len(df)
+
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            # Header Row
+            cell.set_text_props(weight='bold')
+            cell.set_facecolor('#d9d9d9')
+            cell.set_edgecolor('gray')
+        elif row == last_row_idx:
+            # Overall Row (Now at the bottom)
+            cell.set_text_props(weight='bold')
+            cell.set_facecolor('#f2f2f2')
+            cell.set_edgecolor('black')
+            cell.set_linewidth(1.5)
+        else:
+            # Standard Horizon Rows
+            cell.set_edgecolor('gray')
+            cell.set_linewidth(0.5)
+
+    plt.title("VisionTS++ Evaluation Metrics", fontsize=14, pad=10, fontweight='bold')
+    
+    # Add the footnote
+    plt.figtext(0.5, 0.05, "* Overall represents the full 36-month forecast period.", 
+                ha="center", fontsize=10, style='italic', color='#555555')
+    
+    # Executes the Double-Save and displays inline in the notebook
+    double_save_figure(output_dir, 'Vision_Eval_Table.png')
 
 def visualise():
     """
