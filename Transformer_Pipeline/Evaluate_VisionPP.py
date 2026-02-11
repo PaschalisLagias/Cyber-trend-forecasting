@@ -40,36 +40,65 @@ def compute_metrics_per_horizon(preds: np.ndarray, trues: np.ndarray, horizons: 
         DataFrame with metrics for each horizon
     """
     results = []
+    max_h = preds.shape[1]
 
+    # --- 1. Detailed Horizon Breakdown ---
     for h in horizons:
-        # Get predictions up to horizon h
-        p = preds[:, :h, :].flatten()
-        t = trues[:, :h, :].flatten()
+        if h < max_h:
+            p = preds[:, :h, :].flatten()
+            t = trues[:, :h, :].flatten()
 
-        # RSE
-        mse = np.mean((p - t) ** 2)
-        var = np.var(t)
-        rse = np.sqrt(mse / (var + 1e-7))
+            # RSE
+            mse = np.mean((p - t) ** 2)
+            var = np.var(t)
+            rse = np.sqrt(mse / (var + 1e-7))
 
-        # RAE
-        mae = np.mean(np.abs(p - t))
-        mean_abs_dev = np.mean(np.abs(t - np.mean(t)))
-        rae = mae / (mean_abs_dev + 1e-7)
+            # RAE
+            mae = np.mean(np.abs(p - t))
+            mean_abs_dev = np.mean(np.abs(t - np.mean(t)))
+            rae = mae / (mean_abs_dev + 1e-7)
 
-        # Correlation
-        if np.std(p) > 0 and np.std(t) > 0:
-            corr = np.corrcoef(p, t)[0, 1]
-        else:
-            corr = 0.0
+            # CORRELATION
+            if np.std(p) > 0 and np.std(t) > 0:
+                corr = np.corrcoef(p, t)[0, 1]
+            else:
+                corr = 0.0
 
-        horizon_name = f"{h} Months" if h < 36 else f"Full ({h} Months)"
-        results.append({
-            "Horizon": horizon_name,
-            "RSE": rse,
-            "RAE": rae,
-            "MAE": mae,
-            "CORR": corr,
-        })
+            horizon_name = f"{h} Months"
+            results.append({
+                "Horizon": horizon_name,
+                "RSE": rse,
+                "RAE": rae,
+                "MAE": mae,
+                "CORR": corr,
+            })
+
+    # --- 2. Overall Summary (Bottom Row) ---
+    p_all = preds[:, :max_h, :].flatten()
+    t_all = trues[:, :max_h, :].flatten()
+
+    mse_all = np.mean((p_all - t_all) ** 2)
+    var_all = np.var(t_all)
+    rse_all = np.sqrt(mse_all / (var_all + 1e-7))
+
+    mae_all = np.mean(np.abs(p_all - t_all))
+    mean_abs_dev_all = np.mean(np.abs(t_all - np.mean(t_all)))
+    rae_all = mae_all / (mean_abs_dev_all + 1e-7)
+
+    if np.std(p_all) > 0 and np.std(t_all) > 0:
+        corr_all = np.corrcoef(p_all, t_all)[0, 1]
+    else:
+        corr_all = 0.0
+
+    results.append({
+        "Horizon": "Overall",
+        "RSE": rse_all,
+        "RAE": rae_all,
+        "MAE": mae_all,
+        "CORR": corr_all,
+    })
+
+    return pd.DataFrame(results)
 
     return pd.DataFrame(results)
 
@@ -122,7 +151,8 @@ def evaluate():
     checkpoint_path = config.checkpoint_dir / "visiontspp_best.pt"
     if checkpoint_path.exists():
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        # Added strict=False to bypass missing quantile heads
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
         print(f"Loaded weights from {checkpoint_path}")
         print(f"  Checkpoint epoch: {checkpoint.get('epoch', 'N/A')}")
         print(f"  Checkpoint val_loss: {checkpoint.get('val_loss', 'N/A'):.6f}")
