@@ -15,8 +15,27 @@
 # These are potentially very large
 /Processed_Data/graph/*
 /Processed_Data/vision/*
+/Processed_Data/visionpp/*
 # BUT, do NOT ignore the .gitkeep files 
 # These will maintain the folder structure
 !/Processed_Data/graph/.gitkeep
 !/Processed_Data/vision/.gitkeep
-/Notebooks/Test*
+
+# Results 
+# Ignore all raw tensors and root files inside Results
+/Transformer_Pipeline/Results/*
+
+# UN-IGNORE the plot directories so GitHub can host the README images
+!/Transformer_Pipeline/Results/graph_plots/
+!/Transformer_Pipeline/Results/vision_plots/
+
+# RE-IGNORE the massive timestamped archives inside the plot directories
+/Transformer_Pipeline/Results/graph_plots/archive/
+/Transformer_Pipeline/Results/vision_plots/archive/
+
+# Ignore Models and Checkpoints
+/Transformer_Pipeline/Checkpoints/
+/Transformer_Pipeline/Models/
+
+*__pycache__
+*__init__.py
