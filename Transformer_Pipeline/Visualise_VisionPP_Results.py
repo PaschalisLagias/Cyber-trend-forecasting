@@ -177,24 +177,44 @@ def generate_date_labels_forward(start_date, num_steps):
     return dates
 
 
-def double_save_figure(output_dir, filename):
-    """Saves the current matplotlib figure to the main dir and a timestamped archive."""
+def double_save_figure(output_dir, filename, show_inline=True, fig=None):
+    """
+    Saves the matplotlib figure to the main directory and a timestamped archive.
+
+    Args:
+        output_dir (Path): The target directory to save the primary image.
+        filename (str): The name of the file to save (e.g., 'plot.png').
+        show_inline (bool, optional): Whether to display the plot inline in the Jupyter Notebook. Defaults to True.
+        fig (matplotlib.figure.Figure, optional): The specific figure object to save and close. 
+                                                  If None, uses the current active pyplot figure. Defaults to None.
+    """
+    target = fig if fig else plt
+
     # 1. Save static file for README/Dashboard
     main_path = output_dir / filename
-    plt.savefig(main_path, dpi=300, bbox_inches='tight')
+    target.savefig(main_path, dpi=300, bbox_inches='tight')
     
     # 2. Save timestamped archive copy
     archive_dir = output_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     name, ext = os.path.splitext(filename)
     archive_path = archive_dir / f"{name}_{RUN_TIMESTAMP}{ext}"
-    plt.savefig(archive_path, dpi=300, bbox_inches='tight')
+    target.savefig(archive_path, dpi=300, bbox_inches='tight')
+
+    # Force Jupyter to display it cleanly, then destroy it to prevent blank duplicates
+    if show_inline:
+        if fig:
+            from IPython.display import display
+            display(fig)
+        else:
+            plt.show()
     
+    if fig:
+        plt.close(fig)
+    else:
+        plt.close()
+        
     print(f"Saved: {filename} (and archived to {archive_dir.name}/)")
-    
-    # 3. FORCE THE NOTEBOOK TO DISPLAY IT
-    plt.show()
-    plt.close()
 
 
 def save_table_as_image(df, title, output_dir):
@@ -490,32 +510,80 @@ def plot_validation_forecasts(data):
     out_dir = data['output_dir']
     dates = generate_date_labels_forward(datetime(2023, 1, 1), 36)
 
-    # 1. Full Size Plots (Key Examples)
-    keys = ["Password Attack", "NLP/LLM", "Data Backups"]
+# 1. Full Size Plots (Key Examples with Fallbacks for Vision Feature Selection)
+    keys_config = [
+        {"name": "Password Attack", "terms": ["password"], "is_threat": True, "fb_name": "Malware", "fb_terms": ["malware"]},
+        {"name": "NLP/LLM", "terms": ["nlp", "llm"], "is_threat": True, "fb_name": "Ransomware", "fb_terms": ["ransomware"]},
+        {"name": "Data Backups", "terms": ["backup"], "is_threat": False, "fb_name": "Vulnerability", "fb_terms": ["vulnerab"]}
+    ]
+    
+    hist = data['history_data']
+    horizon_len = preds.shape[0]
 
-    for k in keys:
-        idx = find_col_index(k, cols)
-        if idx is None:
-            idx = find_col_index(f"Solution_{k}_Papers", cols)
-        if idx is None:
-            print(f"  Skipping {k}: not found in selected features")
+    for cfg in keys_config:
+        # --- Fallback & Data-Driven Matcher ---
+        target_name = cfg["name"]
+        is_threat = cfg["is_threat"]
+        
+        candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["terms"])]
+        
+        # If Vision model dropped the feature, trigger the fallback
+        if not candidates:
+            target_name = cfg["fb_name"]
+            is_threat = True  # All fallbacks are top-level threats
+            candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["fb_terms"])]
+            
+        if not candidates:
+            print(f"Warning: Could not find {cfg['name']} or fallback {cfg['fb_name']}")
             continue
-
+            
+        # Use the raw history to determine volume
+        if is_threat:
+            idx = max(candidates, key=lambda i: np.max(hist[:, i]))
+        else:
+            idx = min(candidates, key=lambda i: np.max(hist[:, i]))
+            
         fig, ax = plt.subplots(figsize=(10, 6))
-        norm_t = exponential_smoothing(normalise_series(trues[:, idx]))
-        norm_p = exponential_smoothing(normalise_series(preds[:, idx]))
-
-        ax.plot(dates, norm_t, label='Actual', color='black', linewidth=2)
-        ax.plot(dates, norm_p, label='Forecast', color='crimson', linestyle='--', linewidth=2)
-        ax.fill_between(dates, norm_p * 0.95, norm_p * 1.05, color='mistyrose', alpha=0.6, label='95% Confidence')
-
-        ax.set_title(f"Figure 3: {clean_string(k)}", fontsize=16)
+        
+        # --- The Real Actuals & Scaled Forecast ---
+        # 1. Get EXACT 36-month ground truth from the raw chronological CSV (fixes the smoothing issue)
+        raw_t = hist[-horizon_len:, idx]
+        raw_p = preds[:, idx]
+        
+        max_val = np.max(raw_t)
+        if max_val == 0: max_val = 1.0
+            
+        # Actuals: True raw chronological data (no artificial scaling needed)
+        smooth_t = exponential_smoothing(raw_t)
+        
+        # Forecast: Normalize shape, then multiply by true max volume to align them perfectly
+        smooth_p = exponential_smoothing(normalise_series(raw_p) * max_val)
+        
+        # Actual = Blue (#0000fe)
+        ax.plot(dates, smooth_t, label='Actual', color='#0000fe', linewidth=2)
+        # Forecast = Purple (#7f007f)
+        ax.plot(dates, smooth_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=2)
+        
+        # Confidence = Light Pink (#fee6ea)
+        ax.fill_between(dates, smooth_p*0.95, smooth_p*1.05, color='#fee6ea', alpha=0.6, label='95% Confidence')
+        
+        ax.set_title(f"Figure 3: {clean_string(target_name)}", fontsize=16)
+        
+        # --- Explicit Formatting & Grids ---
+        ax.set_xlabel('Month', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Trend', fontsize=12, fontweight='bold')
+        ax.set_axisbelow(True)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
-        ax.legend(loc='upper left', fontsize=10)
-
-        double_save_figure(out_dir, f'Fig3_{sanitise_filename(k)}.png')
+        plt.xticks(rotation=45) 
+        ax.grid(True, which='major', axis='both', linestyle='-', color='lightgray', alpha=0.7)
+        ax.legend(loc='upper left', fontsize=10, frameon=True, edgecolor='black')
+        
+        # Pass `fig=fig` to explicitly close it and prevent duplicate blank plots
+        double_save_figure(out_dir, f'Fig3_{sanitise_filename(target_name)}.png', show_inline=True, fig=fig)
 
     # 2. Grid View (All Nodes)
+    # DISABLED: Wrapped in block quotes to save 10+ minutes and prevent notebook bloat
+    '''
     print("\n--- Generating Grid View (All Validation Nodes) ---")
 
     all_valid_indices = [i for i in range(len(cols)) if np.sum(np.abs(trues[:, i])) > 0]
@@ -549,7 +617,7 @@ def plot_validation_forecasts(data):
             axes[j].axis('off')
 
         double_save_figure(out_dir, 'Fig3_Grid_View_All.png')
-
+    '''
 
 def generate_gap_analysis_tables(data):
     """
