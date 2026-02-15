@@ -170,23 +170,42 @@ def generate_date_labels_forward(start_date, num_steps):
         current = current.replace(year=year, month=month, day=1)
     return dates
 
-def double_save_figure(output_dir, filename):
-    """Saves the current matplotlib figure to the main dir and a timestamped archive."""
+
+def double_save_figure(output_dir, filename, show_inline=True, fig=None):
+    """
+    Saves the matplotlib figure to the main directory and a timestamped archive.
+
+    Args:
+        output_dir (Path): The target directory to save the primary image.
+        filename (str): The name of the file to save (e.g., 'plot.png').
+        show_inline (bool, optional): Whether to display the plot inline in the Jupyter Notebook. Defaults to True.
+        fig (matplotlib.figure.Figure, optional): The specific figure object to save and close. 
+                                                  If None, uses the current active pyplot figure. Defaults to None.
+    """
+    target = fig if fig else plt
+
     # 1. Save static file for README/Dashboard
     main_path = output_dir / filename
-    plt.savefig(main_path, dpi=300, bbox_inches='tight')
+    target.savefig(main_path, dpi=300, bbox_inches='tight')
     
     # 2. Save timestamped archive copy
     archive_dir = output_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
     name, ext = os.path.splitext(filename)
     archive_path = archive_dir / f"{name}_{RUN_TIMESTAMP}{ext}"
-    plt.savefig(archive_path, dpi=300, bbox_inches='tight')
+    target.savefig(archive_path, dpi=300, bbox_inches='tight')
 
-    plt.show()
+    if show_inline:
+        plt.show()
     
-    plt.close()
+    # Explicitly close the passed figure to stop Jupyter from printing a blank duplicate
+    if fig:
+        plt.close(fig)
+    else:
+        plt.close()
+        
     print(f"Saved: {filename} (and archived to {archive_dir.name}/)")
+
 
 def save_table_as_image(df, title, output_dir):
     """
@@ -454,28 +473,80 @@ def plot_validation_forecasts(data):
     keys = ["Password Attack", "NLP/LLM", "Data Backups"]
     
     for k in keys:
-        idx = find_col_index(k, cols)
-        if idx is None: idx = find_col_index(f"Solution_{k}_Papers", cols)
-        if idx is None: continue
+        # --- Data-Driven Column Matcher ---
+        candidate_indices = []
+        search_terms = []
+        
+        if k == "Password Attack":
+            search_terms = ["password"]
+        elif k == "NLP/LLM":
+            search_terms = ["nlp", "llm"]
+        elif k == "Data Backups":
+            search_terms = ["backup"]
+            
+        # Find all columns containing the search terms
+        for i, col_name in enumerate(cols):
+            raw_col = str(col_name).lower()
+            if any(term in raw_col for term in search_terms):
+                candidate_indices.append(i)
+                
+        if not candidate_indices:
+            print(f"Warning: Could not find any column matching {k}")
+            continue
+            
+        # Select the correct column based on data volume (max value in history)
+        # Threats (Password, NLP) have massive volume. Solutions (Backups) have tiny volume.
+        if k in ["Password Attack", "NLP/LLM"]:
+            # Pick the column with the highest maximum value (The Threat)
+            idx = max(candidate_indices, key=lambda i: np.max(trues[:, i]))
+        else: # Data Backups
+            # Pick the column with the lowest maximum value (The Solution)
+            idx = min(candidate_indices, key=lambda i: np.max(trues[:, i]))
             
         fig, ax = plt.subplots(figsize=(10, 6))
-        norm_t = exponential_smoothing(normalise_series(trues[:, idx]))
-        norm_p = exponential_smoothing(normalise_series(preds[:, idx]))
         
-        ax.plot(dates, norm_t, label='Actual', color='black', linewidth=2)
-        ax.plot(dates, norm_p, label='Forecast', color='crimson', linestyle='--', linewidth=2)
+        # Raw Data (normalise_series is REMOVED to preserve true Y-axis scale)
+        # raw_t = exponential_smoothing(trues[:, idx])
+        # raw_p = exponential_smoothing(preds[:, idx])
         
-        # Added 'label' to fill_between so it appears in legend
-        ax.fill_between(dates, norm_p*0.95, norm_p*1.05, color='mistyrose', alpha=0.6, label='95% Confidence')
+        max_val = np.max(trues[:, idx])
+        if max_val == 0: max_val = 1.0 # Fallback safety
+        scaled_t = exponential_smoothing(normalise_series(trues[:, idx]) * max_val)
+        scaled_p = exponential_smoothing(normalise_series(preds[:, idx]) * max_val)
         
+        # Actual = Blue (#0000fe)
+        ax.plot(dates, scaled_t, label='Actual', color='#0000fe', linewidth=2)
+        # Forecast = Purple (#7f007f)
+        ax.plot(dates, scaled_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=2)
+        
+        # Confidence = Light Pink (#fee6ea)
+        ax.fill_between(dates, scaled_p*0.95, scaled_p*1.05, color='#fee6ea', alpha=0.6, label='95% Confidence') 
+               
         ax.set_title(f"Figure 3: {clean_string(k)}", fontsize=16)
+        
+        # --- Explicit Formatting & Grids ---
+        ax.set_xlabel('Month', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Trend', fontsize=12, fontweight='bold')
+        
+        # Set gridlines to draw *behind* the plot lines
+        ax.set_axisbelow(True)
+        
+        # Clean auto-spacing (Removes the 36-month clutter, keeps standard 4-month gaps)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
+        plt.xticks(rotation=45) 
         
-        ax.legend(loc='upper left', fontsize=10)
+        # Grid: Draw strict lines on both X and Y
+        ax.grid(True, which='major', axis='both', linestyle='-', color='lightgray', alpha=0.7)
         
-        double_save_figure(out_dir, f'Fig3_{sanitise_filename(k)}.png')
+        # Formatted Legend
+        ax.legend(loc='upper left', fontsize=10, frameon=True, edgecolor='black')
+        
+        # Pass `fig=fig` to explicitly close it and prevent duplicate blank plots
+        double_save_figure(out_dir, f'Fig3_{sanitise_filename(k)}.png', show_inline=True, fig=fig)
 
     # 2. Grid View (All Nodes)
+    # DISABLED: Wrapped in block quotes to save 10+ minutes and prevent notebook bloat
+    '''
     print("\n--- Generating Grid View (All Validation Nodes) ---")
     
     all_valid_indices = [i for i in range(len(cols)) if np.sum(trues[:, i]) > 0]
@@ -495,8 +566,9 @@ def plot_validation_forecasts(data):
             norm_t = exponential_smoothing(normalise_series(trues[:, idx]))
             norm_p = exponential_smoothing(normalise_series(preds[:, idx]))
             
-            ax.plot(dates, norm_t, label='Actual', color='black', linewidth=1.5)
-            ax.plot(dates, norm_p, label='Forecast', color='crimson', linestyle='--', linewidth=1.5)
+            # Updated Colors for Grid View as well
+            ax.plot(dates, norm_t, label='Actual', color='#0000fe', linewidth=1.5)
+            ax.plot(dates, norm_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=1.5)
             
             ax.set_title(clean_string(node_name), fontsize=10)
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
@@ -507,8 +579,10 @@ def plot_validation_forecasts(data):
         for j in range(i + 1, len(axes)):
             axes[j].axis('off')
             
-        double_save_figure(out_dir, 'Fig3_Grid_View_All.png')
-
+        # Save: show_inline=False prevents grid from spamming the notebook
+        double_save_figure(out_dir, 'Fig3_Grid_View_All.png', show_inline=False)
+    '''
+        
 def generate_gap_analysis_tables(data):
     """
     Generates Tables 5 & 6 (Gap Analysis).
