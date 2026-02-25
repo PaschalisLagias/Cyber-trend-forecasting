@@ -309,7 +309,6 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     # Convert 'infinity' paths to 511 (PDFormer convention).
     # Save the resulting sh_mx.npy to the output_dir.
     # --- sd_mx (distance matrix) ---
-<<<<<<< HEAD
     # This might be computed from a different source in their 'rel' file.
     # For our purpose, we might adapt this or use the adj_matrix itself.
     # Placeholder: save a copy or computed version as sd_mx.npy.
@@ -333,7 +332,6 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
             for j in range(num_nodes):
                 sh_mx[i, j] = min(sh_mx[i, j], sh_mx[i, k] + sh_mx[k, j])
 
-=======
     # Mirror sh_mx for simplicity unless physical distances exist.
     # Save as sd_mx.npy.
 
@@ -358,22 +356,18 @@ def compute_shortest_path_matrices(adj_matrix, output_dir):
     sh_mx = sh_mx.astype(int)
     np.fill_diagonal(sh_mx, 0)
     
->>>>>>> origin/development
     # Save Hop Matrix
     sh_path = os.path.join(output_dir, 'sh_mx.npy')
     np.save(sh_path, sh_mx)
     print(f"Saved sh_mx (Hops) to {sh_path}")
 
-<<<<<<< HEAD
     # Initialise Distance Matrix (sd_mx)
     # In PDFormer, if there are no physical distances, we use the Hop count
     # or the inverted adjacency weights. Here we will mirror sh_mx for simplicity
     # unless you have a specific physical distance metric.
-=======
     # 3. Initialise Distance Matrix (sd_mx)
     # In PDFormer, if there are no physical distances, we use the Hop count 
     # or the inverted adjacency weights. Here we mirror sh_mx.
->>>>>>> origin/development
     sd_mx = sh_mx.astype(float)
     
     sd_path = os.path.join(output_dir, 'sd_mx.npy')
@@ -526,7 +520,6 @@ def main():
                         help="Generate expensive outputs required by PDFormer (DTW, Clustering).")
     args = parser.parse_args()
 
-<<<<<<< HEAD
     # --- Configuration - CONSTANTS (Aligned with B-MTGNN Paper) ---
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -545,7 +538,6 @@ def main():
     WINDOW_SIZE = 10
     FORECAST_HORIZON = 36
 
-=======
     # --- Load Configuration from config---
     config = PDFormerConfig()
     
@@ -562,7 +554,6 @@ def main():
     FORECAST_HORIZON = config.output_window 
 
     # 3. Local Constants (Not currently in Config)
->>>>>>> origin/development
     CORRELATION_THRESHOLD = 0.7
     N_CLUSTERS = 16
 
@@ -585,13 +576,10 @@ def main():
         return
 
     # --- Step 1.2: Double Exponential Smoothing ---
-<<<<<<< HEAD
     # The paper explicitly mentions using DES with alpha=0.1 (Section 4.1 caption)
     # Applied BEFORE splitting to ensure the trend is captured cleanly
     df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)
-=======
     df_smooth = apply_double_exponential_smoothing(df_raw, alpha=0.1, beta=0.1)     
->>>>>>> origin/development
 
     # --- Step 1.3: Split Data ---
     train_df, val_df, test_df = split_data(df_raw, TRAIN_SPLIT, VAL_SPLIT, WINDOW_SIZE)
@@ -606,14 +594,9 @@ def main():
     X_train, y_train = create_sliding_windows(train_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_val, y_val = create_sliding_windows(val_scaled, WINDOW_SIZE, FORECAST_HORIZON)
     X_test, y_test = create_sliding_windows(test_scaled, WINDOW_SIZE, FORECAST_HORIZON)
-<<<<<<< HEAD
 
     # Check if windowing failed (e.g., if data was too short for the large horizon)
-    if X_train is None:
-=======
-    
     if X_train is None: 
->>>>>>> origin/development
         print("Aborting: Windowing failed.")
         return
 
