@@ -9,13 +9,21 @@
 /Data_Preparation/cookies.py
 /Data_Preparation/scopus_cookies.pkl
 /geckodriver.log
+
+# python config
+*__pycache__
+*__init__.py
+
 # if using a virtual enviroment 
 /.venv
+
 # Ignore all data files inside the processed data folders
 # These are potentially very large
 /Processed_Data/graph/*
 /Processed_Data/vision/*
 /Processed_Data/visionpp/*
+/Processed_Data/B-MTGNN/*
+/Processed_Data/Comparison_Plots/*
 # BUT, do NOT ignore the .gitkeep files 
 # These will maintain the folder structure
 !/Processed_Data/graph/.gitkeep
@@ -25,19 +33,22 @@
 # Ignore all raw tensors and root files inside Results
 /Transformer_Pipeline/Results/*
 
-# UN-IGNORE the plot directories so GitHub can host the README images
-!/Transformer_Pipeline/Results/graph_plots/
-!/Transformer_Pipeline/Results/vision_plots/
+# # UN-IGNORE the plot directories so GitHub can host the README images
+# !/Transformer_Pipeline/Results/graph_plots/
+# !/Transformer_Pipeline/Results/vision_plots/
 
-# RE-IGNORE the massive timestamped archives inside the plot directories
-/Transformer_Pipeline/Results/graph_plots/archive/
-/Transformer_Pipeline/Results/vision_plots/archive/
+# # RE-IGNORE the massive timestamped archives inside the plot directories
+# /Transformer_Pipeline/Results/graph_plots/archive/
+# /Transformer_Pipeline/Results/vision_plots/archive/
 
 # Ignore Models and Checkpoints
 /Transformer_Pipeline/Checkpoints/
 /Transformer_Pipeline/Models/
 
-*__pycache__
-*__init__.py
+# folder with local pipeline templates for new models 
+# (use Graph_Pipeline_Verification.ipynb/Graph_Vignette.ipynb to recreate structure)
+/Notebooks/Templates
 
-/Notebooks/Transformer_Pipeline_Vignette.ipynb
+# If using syntrace
+.stfolder/
+.stignore
