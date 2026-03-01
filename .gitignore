@@ -52,3 +52,8 @@
 # If using syntrace
 .stfolder/
 .stignore
+
+# Keep the base weight (from original expreiment) of B-MTGNN
+/B-MTGNN/model/Bayesian/hp.txt
+/B-MTGNN/model/Bayesian/model.pt
+/Data_Pipeline/test.ipynb
