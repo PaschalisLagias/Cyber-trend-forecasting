@@ -1,17 +1,52 @@
 """
-CSIS Cyber Incidents Processing Script
+CSIS data preparation script
+--------------------------------------------------------------------------------
+This script processes CSIS cyber incident data and generates a monthly number of
+incidents (NoI) aggregation similar to the Hackmageddon data preparation.
 
-The CSIS significant cyber events list is available for download here:
+The CSIS significant cyber events list (e.g. `260306_Cyber_Events.pdf`) 
+is available for download here:
 https://www.csis.org/programs/strategic-technologies-program/significant-cyber-incidents
 
-This script processes the CSIS CSV data and generates a monthly number of incidents (NoI)
-aggregation similar to the Hackmageddon processing pipeline.
+The PDF must be converted to text (e.g. `pdftotext` or Acrobat) and then
+manually converted to CSV:
+- Remove introductory text, blank lines, header/footers.
+- Find and replace date strings at the start of lines
+  (e.g. 'July 2020. ' to '2020-07,"'). Note that October 2015 and November 2015
+  are out of order in the PDF, and that some year/month strings also appear in
+  the incident descriptions.
+- Add " to end of incident descriptions and remove trailing spaces.
+- Manually identify the countries involved in each incident (3rd column of CSV)
+   - List countries by 2 letter country code, separated
+     by a dash e.g. "DK-SE-IR-CN"
+   - Where countries are unknown or unspecific, use "?". If some countries are
+     specified and others are unknown, list the known countries
+     and add "?" e.g. "US-GB-?":
+   - Where the row should be ignored (e.g. it does not 
+     describe an incident) use "ignore"
+   - Where the row describes an international incident,
+     use >1. The script will replace this with a list of all countries.
 
-Input: csis_260306_added_countries.csv
-Output: csis_NoI_monthly.csv
+Attack identification and country categorization follows the same methodology
+as the Hackmageddon processing scripts, however there are additional options:
 
-Attack identification and country categorization follows the same methodology as the
-Hackmageddon processing scripts.
+- Unrecognised country codes (those not appearing in the `countries` list) can
+  be `include`d, `excluded`, or considered `unknown` and added
+  to the ? category.
+- The keyword matching (to identify attack types) can use the original 
+  `hackmageddon` matches, or an `enhanced` keyword list.
+
+--------------------------------------------------------------------------------
+2026-04-04 BG
+After discussion with Paschalis, the following settings were used:
+- In the input CSV file, incidents that describe regions or groups of countries
+  (e.g. Middle East, NATO) these are been treated as "?" rather than listing
+  all countries in the region/org.
+- UNRECOGNISED_COUNTRY_HANDLING = 'unknown'
+- SCANNER_MODE = 'enhanced'
+- 11 input rows do not have specific dates, these are ignored by the script.
+- 6 rows don't describe incidents and have been manually flagged to be ignored.
+
 """
 
 import csv
@@ -20,15 +55,15 @@ from datetime import datetime
 import sys
 
 # date range (inclusive)
-START_YEAR = 2011
-START_MONTH = 7
-END_YEAR = 2022
+START_YEAR = 2006
+START_MONTH = 4
+END_YEAR = 2025
 END_MONTH = 12
 
-# set to 'others' to put unrecognised countries into 'Others' category
+# set to 'include' to keep unrecognised countries as their own output codes
 # set to 'exclude' to exclude unrecognised countries
 # set to 'unknown' to put unrecognised countries into '?' category
-UNRECOGNIZED_COUNTRY_HANDLING = 'exclude'
+UNRECOGNISED_COUNTRY_HANDLING = 'unknown'
 
 INPUT_FILE = 'csis_260306.csv'
 
@@ -39,11 +74,10 @@ OUTPUT_TRANSPOSED = True  # True = periods as row
 # scanner mode:
 # - 'hackmageddon' keeps the original hackmageddon-style keyword scanner
 # - 'enhanced' uses broader matching to reduce incidents classified as Others
-SCANNER_MODE = 'enhanced'  # 
-# ====== END CONFIGURATION ======
+SCANNER_MODE = 'enhanced'
 
 
-# Valid countries list
+# valid countries list (same as Hackmageddon script)
 countries = ['US','GB','CA','AU','UA','RU','FR','DE','BR','CN','JP','PK',
              'KP','KR','IN','TW','NL','ES','SE','MX','IR','IL','SA','SY',
              'FI','IE','AT','NO','CH','IT','MY','EG','TR','PT','PS','AE','?','ALL']
@@ -171,14 +205,13 @@ def detect_attacks_enhanced(text):
         detected.add('Password Attack')
 
     # SQL injection variants
-    # if 'SQL INJECTION' in text:
-    #     detected.add('SQL Injection')
+    # none
 
     # account takeover
     if 'ACCOUNT TAKEOVER' in text or 'UNAUTHORIZED ACCOUNT ACCESS' in text or 'CREDENTIAL THEFT' in text:
         detected.add('Account Hijacking')
 
-    # trojan/RAT
+    # trojan/remote access trojan
     if ' RAT,' in text or ' RAT ' in text or ' RAT.' in text:
         detected.add('Trojan')
 
@@ -234,11 +267,20 @@ def increment_attack_counts(counter, attack_name, country, date_key):
     counter[attack_name + '-ALL'][date_key] += 1
 
 
+def initialise_country_counter(counter, country, periods):
+    for attack in attacks:
+        key = attack + '-' + country
+        if key not in counter:
+            counter[key] = {period: 0 for period in periods}
+
+
 # ------------------------------------------------------------------------------
 
 c = dict()
 periods = []
 unrecognised_countries = set()
+known_countries = set(countries)
+included_unrecognised_countries = set()
 
 # initialise attack-country counters
 for attack in attacks:
@@ -318,26 +360,24 @@ for idx, row in enumerate(data):
 
         # parse countries for incident
         if '>1' in countries_str:
-            # Expand >1 to all valid countries (excluding ALL and ?)
-            country_list = [country for country in countries if country not in ['ALL', '?']]
+            country_list=countries[:-1]                                         # excluding 'ALL'
         else:
             # split hypenated list of countries
-            country_list = [country.strip() for country in countries_str.split('-')]
+            country_list = [country.strip().upper() for country in countries_str.split('-')]
 
         # process countries found
         for country in country_list:
             # check if country is valid
-            if country not in countries:
+            if country not in known_countries:
                 unrecognised_countries.add(country)
-                # Handle unrecognized country based on configuration
-                if UNRECOGNIZED_COUNTRY_HANDLING == 'exclude':
+                # handle unrecognised country based on configuration
+                if UNRECOGNISED_COUNTRY_HANDLING == 'exclude':
                     continue
-                elif UNRECOGNIZED_COUNTRY_HANDLING == 'others':
-                    country = 'Others'
-                    # Skip if 'Others' not in countries list
-                    if country not in countries:
-                        continue
-                elif UNRECOGNIZED_COUNTRY_HANDLING == 'unknown':
+                elif UNRECOGNISED_COUNTRY_HANDLING == 'include':
+                    included_unrecognised_countries.add(country)
+                    known_countries.add(country)
+                    initialise_country_counter(c, country, periods)
+                elif UNRECOGNISED_COUNTRY_HANDLING == 'unknown':
                     country = '?'
                 else:
                     continue
@@ -357,7 +397,12 @@ for idx, row in enumerate(data):
 # write output CSV
 print(f"Writing output to {OUTPUT_FILE}...")
 
-ordered_keys = [attack + '-' + country for attack in attacks for country in countries]
+if included_unrecognised_countries:
+    output_countries = countries[:-1] + sorted(included_unrecognised_countries) + ['ALL']
+else:
+    output_countries = countries
+
+ordered_keys = [attack + '-' + country for attack in attacks for country in output_countries]
 
 try:
     with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as f:
@@ -385,11 +430,11 @@ except Exception as e:
 # report unrecognised countries
 if unrecognised_countries:
     print(f"\nUnrecognised country codes found: {sorted(unrecognised_countries)}")
-    if UNRECOGNIZED_COUNTRY_HANDLING == 'others':
-        print(f"These were grouped into 'Others'")
-    elif UNRECOGNIZED_COUNTRY_HANDLING == 'unknown':
+    if UNRECOGNISED_COUNTRY_HANDLING == 'include':
+        print(f"These were included as separate country code columns")
+    elif UNRECOGNISED_COUNTRY_HANDLING == 'unknown':
         print(f"These were grouped into '?'")
-    elif UNRECOGNIZED_COUNTRY_HANDLING == 'exclude':
+    elif UNRECOGNISED_COUNTRY_HANDLING == 'exclude':
         print(f"These were excluded from the analysis")
 else:
     print(f"\nNo unrecognised country codes found.")
