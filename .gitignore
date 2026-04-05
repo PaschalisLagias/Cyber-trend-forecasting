@@ -11,3 +11,4 @@
 /geckodriver.log
 /Data_Preparation/YouTube/config.json
 /Data_Preparation/Reddit/json_reddit_test.py
+/Data_Preparation/Reddit/RedditData_v3.csv
