@@ -18,7 +18,7 @@ Usage:
 
 import sys
 from pathlib import Path
-import pandas as pd
+import pandas as pd 
 
 # --- Path Configuration ---
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -46,6 +46,18 @@ def translate_header(old_header: str, new_headers_set: set) -> str:
     # Rule 1: Exact Match (Handles '-ALL' incident counts and 'Holidays')
     if old_header in new_headers_set:
         return old_header
+    
+    # Ground Truth Shift (Hackmageddon -> CSIS)
+    # Attempts to map legacy Hackmageddon target columns to their CSIS equivalents.
+    if "Hackmageddon" in old_header:
+        csis_candidate = old_header.replace("Hackmageddon", "CSIS")
+        if csis_candidate in new_headers_set:
+            return csis_candidate
+        
+        # Fallback: Check if the new dataset uses a different delimiter for CSIS
+        csis_candidate_under = old_header.replace("Hackmageddon", "CSIS").replace("-", "_").replace(" ", "_")
+        if csis_candidate_under in new_headers_set:
+            return csis_candidate_under
 
     # Rule 2: Hardcoded Edge Cases (Identified from email forensics)
     exceptions = {
@@ -53,7 +65,8 @@ def translate_header(old_header: str, new_headers_set: set) -> str:
         # Handle specific case formatting changes in the new dataset
         "Solution_Identity-Based Encryption (IBE)_Mentions": "Solution_IDENTITY_BASED_ENCRYPTION_Papers",
         "Solution_Bayesian Network_Mentions": "Solution_BAYESIAN_NETWORK_Papers",
-        "Solution_Control Flow Integrity_Mentions": "Solution_CONTROL_FLOW_INTEGRITY_Papers"
+        "Solution_Control Flow Integrity_Mentions": "Solution_CONTROL_FLOW_INTEGRITY_Papers",
+        "Solution_MACHINE LEARNING_Mentions": "Solution_ML/DL_Papers"
     }
     if old_header in exceptions and exceptions[old_header] in new_headers_set:
         return exceptions[old_header]
@@ -130,8 +143,15 @@ def generate_mapping():
     
     if missing_cols:
         print(f"\nWARNING: Failed to map {len(missing_cols)} columns.")
+        csis_failures = 0
         for col in missing_cols:
             print(f"  - Missing: {col}")
+            if "Hackmageddon" in col or "-ALL" in col:
+                csis_failures += 1
+        
+        if csis_failures > 0:
+            print(f"\nAUDIT NOTE: {csis_failures} ground truth/incident nodes failed to map.")
+            print("Verify if CSIS covers these specific threat vectors in the Mark 3 dataset.")
     else:
         print("\nSUCCESS: 100% of legacy nodes mapped to the new dataset!")
 
