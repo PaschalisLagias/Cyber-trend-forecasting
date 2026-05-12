@@ -31,45 +31,45 @@ TOPICS = [
     '"military attack"',
     '"armed force war"'
 ]
-TOPIC_QUERY = "|".join(TOPICS)
+TOPIC_QUERY = f'({"|".join(TOPICS)})'
 
 countries_dict = {
-    "US": "(USA OR America OR 'United States')",
-    "GB": "(UK OR British OR 'United Kingdom' OR Britain)",
-    "CA": "(Canada OR Canadian)",
-    "AU": "(Australia)",
-    "UA": "(Ukraine)",
-    "RU": "(Russia)",
-    "FR": "(France OR French)",
-    "DE": "(German)",
-    "BR": "(Brazil)",
-    "CN": "(China OR Chinese)",
-    "JP": "(Japan)",
-    "PK": "(Pakistan)",
-    "KP": "('North Korea')",
-    "KR": "('South Korea')",
-    "IN": "(India)",
-    "TW": "(Taiwan)",
-    "NL": "(NetherLands OR Holland OR Dutch)",
-    "ES": "(Spain OR Spanish)",
-    "SE": "(Sweden OR Swedish)",
-    "MX": "(Mexic)",
-    "IR": "(Iran)",
-    "IL": "(Israel)",
-    "SA": "(Saudi)",
-    "SY": "(Syria)",
-    "FI": "(Finland OR Finnish)",
-    "IE": "(Ireland OR Irish)",
-    "AT": "(Austria)",
-    "NO": "(Norway OR Norwegian)",
-    "CH": "(Switzerland OR Swiss)",
-    "IT": "(Italy OR Italian)",
-    "MY": "(Malaysia)",
-    "EG": "(Egypt)",
-    "TR": "(Turkey OR Turkish)",
-    "PT": "(Portugal OR Portuguese)",
-    "PS": "(Palestin OR 'West Bank' OR Gaza)",
-    "AE": "(UAE OR 'United Arab Emirates' OR Emarat)"
+    "US": '"USA"|"America"|"United States"',
+    "GB": '"UK"|"British"|"United Kingdom"|"Britain"',
+    "CA": '"Canada"|"Canadian"',
+    "AU": '"Australia"',
+    "UA": '"Ukraine"',
+    "RU": '"Russia"',
+    "FR": '"France"|"French"',
+    "DE": '"Germany"|"German"',
+    "BR": '"Brazil"',
+    "CN": '"China"|"Chinese"',
+    "JP": '"Japan"',
+    "PK": '"Pakistan"',
+    "KP": '"North Korea"',
+    "KR": '"South Korea"',
+    "IN": '"India"',
+    "TW": '"Taiwan"',
+    "NL": '"Netherlands"|"Holland"|"Dutch"',
+    "ES": '"Spain"|"Spanish"',
+    "SE": '"Sweden"|"Swedish"',
+    "MX": '"Mexico"',
+    "IR": '"Iran"',
+    "IL": '"Israel"',
+    "SA": '"Saudi Arabia"|"Saudi"',
+    "SY": '"Syria"',
+    "FI": '"Finland"|"Finnish"',
+    "IE": '"Ireland"|"Irish"',
+    "AT": '"Austria"',
+    "NO": '"Norway"|"Norwegian"',
+    "CH": '"Switzerland"|"Swiss"',
+    "IT": '"Italy"|"Italian"',
+    "MY": '"Malaysia"',
+    "EG": '"Egypt"',
+    "TR": '"Turkey"|"Turkish"',
+    "PT": '"Portugal"|"Portuguese"',
+    "PS": '"Palestine"|"West Bank"|"Gaza"',
+    "AE": '"UAE"|"United Arab Emirates"|"Emarat"'
 }
 
 # Date range, year range and months
@@ -111,7 +111,7 @@ for year in year_range:
         start_date = datetime.datetime(year, idx, 1).isoformat() + "Z"
 
         # End date
-        if month == 12:
+        if idx == 12:
             end_date = datetime.datetime(year + 1, 1, 1).isoformat() + "Z"
         else:
             end_date = datetime.datetime(year, idx + 1, 1).isoformat() + "Z"
@@ -120,12 +120,16 @@ for year in year_range:
         month_count_list = []
         counter += 1
 
-        for code, country in countries_dict.items():
-            print(f"--Searching {country}:")
+        for code, country_query in countries_dict.items():
+            print(f"--Searching {country_query}:")
+
+            # Wrap country_query in brackets & add space before the TOPIC_QUERY
+            FINAL_QUERY = f"({country_query}) {TOPIC_QUERY}"
+
             try:
                 # 'type="video"' ensures we ignore playlists and channels
                 request = youtube.search().list(
-                    q=TOPIC_QUERY,
+                    q=FINAL_QUERY,
                     part="snippet",
                     type="video",
                     regionCode=code,
