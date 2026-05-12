@@ -10,6 +10,7 @@ https://praw.readthedocs.io/en/stable/code_overview/reddit_instance.html
 
 Subreddit class
 https://praw.readthedocs.io/en/stable/code_overview/models/subreddit.html
+https://praw.readthedocs.io/en/stable/code_overview/models/subreddit.html#praw.models.Subreddit.search
 """
 from typing import Dict, List
 import praw
@@ -17,103 +18,8 @@ import pandas as pd
 from datetime import datetime
 import time
 
-subreddits_list = [
-    "arab",
-    "arabasian",
-    "asia",
-    "asianpolitics",
-    "asiareport",
-    "askbalkans",
-    "askhistorians",
-    "asklatinamerica",
-    "askreddit",
-    "ausnews",
-    "australiamedianews",
-    "australianews",
-    "australianpolitics",
-    "breakingnews",
-    "centralamerica",
-    "channelnewsasia",
-    "collapse",
-    "combatfootage",
-    "conspiracy",
-    "credibledefense",
-    "eastasianews",
-    "economy",
-    "economics",
-    "eunews",
-    "euro",
-    "europe",
-    "europeanforum",
-    "europes",
-    "foodforthought",
-    "freeeuropenews",
-    "geopolitics",
-    "globalmarkets",
-    "globalmarketnews",
-    "globaltalk",
-    "google",
-    "history",
-    "immigration",
-    "internationalrelation",
-    "inthenews",
-    "middleeast",
-    "middleeastnews",
-    "military",
-    "moderatepolitics",
-    "news",
-    "newsandpolitics",
-    "news_world_conflicts",
-    "newworldorder",
-    "nuclearwar",
-    "politicaldiscussion",
-    "politics",
-    "politicsall",
-    "politicsandwar",
-    "war",
-    "worldnews",
-    "worldpolitics",
-    "worldwar"
-]
-
-countries_dict = {
-    "US": "(USA OR America OR 'United States')",
-    "GB": "(UK OR British OR 'United Kingdom' OR Britain)",
-    "CA": "(Canada OR Canadian)",
-    "AU": "(Australia)",
-    "UA": "(Ukraine)",
-    "RU": "(Russia)",
-    "FR": "(France OR French)",
-    "DE": "(German)",
-    "BR": "(Brazil)",
-    "CN": "(China OR Chinese)",
-    "JP": "(Japan)",
-    "PK": "(Pakistan)",
-    "KP": "('North Korea')",
-    "KR": "('South Korea')",
-    "IN": "(India)",
-    "TW": "(Taiwan)",
-    "NL": "(NetherLands OR Holland OR Dutch)",
-    "ES": "(Spain OR Spanish)",
-    "SE": "(Sweden OR Swedish)",
-    "MX": "(Mexic)",
-    "IR": "(Iran)",
-    "IL": "(Israel)",
-    "SA": "(Saudi)",
-    "SY": "(Syria)",
-    "FI": "(Finland OR Finnish)",
-    "IE": "(Ireland OR Irish)",
-    "AT": "(Austria)",
-    "NO": "(Norway OR Norwegian)",
-    "CH": "(Switzerland OR Swiss)",
-    "IT": "(Italy OR Italian)",
-    "MY": "(Malaysia)",
-    "EG": "(Egypt)",
-    "TR": "(Turkey OR Turkish)",
-    "PT": "(Portugal OR Portuguese)",
-    "PS": "(Palestin OR 'West Bank' OR Gaza)",
-    "AE": "(UAE OR 'United Arab Emirates' OR Emarat)"
-}
+from subreddits import subreddits_list
+from countries import countries_dict
 
 # Date range
 START_DATE = "2011-07"
