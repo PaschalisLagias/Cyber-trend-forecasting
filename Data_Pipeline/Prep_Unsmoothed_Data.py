@@ -30,7 +30,7 @@ PROJECT_ROOT = CURRENT_DIR.parent
 
 # Input paths
 # INPUT_CSV_PATH = PROJECT_ROOT / "Data_Preparation" / "Cyber_Trend_Forecasting_All.csv"
-INPUT_CSV_PATH = PROJECT_ROOT / "Data_Preparation" / "CSIS" / "csis_output_20260404-01.csv"
+INPUT_CSV_PATH = PROJECT_ROOT / "Data_Preparation" / "Cyber_Trend_Forecasting_All_v2.csv"
 LEGACY_HEADER_PATH = PROJECT_ROOT / "B-MTGNN" / "data" / "sm_data_g.csv"
 MAPPING_CSV_PATH = CURRENT_DIR / "column_mapping.csv"
 
