@@ -53,6 +53,9 @@
 .stfolder/
 .stignore
 
+# Ignore macOS Finder custom folder attributes
+.DS_Store
+
 # Keep the base weight (from original expreiment) of B-MTGNN
 /B-MTGNN/model/Bayesian/hp.txt
 /B-MTGNN/model/Bayesian/model.pt
