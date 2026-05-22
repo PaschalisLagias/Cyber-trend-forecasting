@@ -65,7 +65,7 @@ The resultant dataset is used to replace Twitter data.
 This directory contains the script **PH.py**, which extracts the feature **PH** 
 using the Python Holidays package. This script produces the csv file **PH.csv** 
 with the monthly number of public holidays in 36 countries in the period 
-between July 2011 until December 2022. Holidays package version: 0.34.
+between July 2011 until December 2022. Holidays package version: 0.13.
 
 
 ## Notes / Requirements

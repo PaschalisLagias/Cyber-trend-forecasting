@@ -6,7 +6,10 @@ unknown rate limit, which is easily reached and blockes requests after a point.
 Moreover, no data are returned for North Korea ("KP"). For time windows longer
 than 5 years, data are returned at monthly frequency with the first day of
 each month as a timestamp.
+
+As a result, Google Trends API MUST NOIT BE USED for this project.
 """
+
 from itertools import product
 import time
 import pandas as pd

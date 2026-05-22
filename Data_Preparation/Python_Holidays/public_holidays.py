@@ -17,7 +17,7 @@ import holidays
 import csv
 
 START_DATE = date(2011, 7, 1)
-END_DATE = date(2025, 3, 1)
+END_DATE = date(2026, 3, 1)
 
 
 def is_leap_year(curr_year: int) -> bool:
@@ -126,6 +126,6 @@ if __name__ == "__main__":
         all_data.append(country_data)
         print("Added holidays of", country)
 
-    with open("PH_v2.csv", "w", newline="") as f:
+    with open("PH_v3.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerows(list(map(list, zip(*all_data))))

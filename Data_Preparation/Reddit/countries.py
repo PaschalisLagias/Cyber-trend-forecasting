@@ -1,0 +1,42 @@
+"""
+Dictionary with country codes and their description suitable for API queries.
+"""
+
+countries_dict = {
+    "US": '(USA OR America OR "United States")',
+    "GB": '(UK OR British OR "United Kingdom" OR Britain)',
+    "CA": '(Canada OR Canadian)',
+    "AU": '(Australia)',
+    "UA": '(Ukraine)',
+    "RU": '(Russia)',
+    "FR": '(France OR French)',
+    "DE": '(German)',
+    "BR": '(Brazil)',
+    "CN": '(China OR Chinese)',
+    "JP": '(Japan)',
+    "PK": '(Pakistan)',
+    "KP": '("North Korea")',
+    "KR": '("South Korea")',
+    "IN": '(India)',
+    "TW": '(Taiwan)',
+    "NL": '(Netherlands OR Holland OR Dutch)',
+    "ES": '(Spain OR Spanish)',
+    "SE": '(Sweden OR Swedish)',
+    "MX": '(Mexico)',
+    "IR": '(Iran)',
+    "IL": '(Israel)',
+    "SA": '(Saudi)',
+    "SY": '(Syria)',
+    "FI": '(Finland OR Finnish)',
+    "IE": '(Ireland OR Irish)',
+    "AT": '(Austria)',
+    "NO": '(Norway OR Norwegian)',
+    "CH": '(Switzerland OR Swiss)',
+    "IT": '(Italy OR Italian)',
+    "MY": '(Malaysia)',
+    "EG": '(Egypt)',
+    "TR": '(Turkey OR Turkish)',
+    "PT": '(Portugal OR Portuguese)',
+    "PS": '(Palestine OR "West Bank" OR Gaza)',
+    "AE": '(UAE OR "United Arab Emirates" OR Emarat)'
+}
