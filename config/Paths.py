@@ -2,6 +2,11 @@
 import os
 from pathlib import Path
 
+# --- Dynamic Experiment Tag ---
+# Defaults to empty string. To use a tag, set it in your notebook before running scripts.
+# Example: os.environ['EXPERIMENT_TAG'] = "_Mark3"
+TAG = os.environ.get('EXPERIMENT_TAG', '')
+
 # --- Project Root ---
 # Dynamically resolves the root directory (Cyber-trend-forecasting)
 # Assumes this script is located in Cyber-trend-forecasting/Config/paths.py
@@ -39,6 +44,12 @@ BMTGNN_SM_DATA_G_TXT = BMTGNN_DATA_DIR / "sm_data_g.txt"
 # --- Processed Data & Comparison Plots ---
 PROCESSED_DATA_DIR = ROOT_DIR / "Processed_Data"
 COMPARISON_PLOTS_DIR = PROCESSED_DATA_DIR / "Comparison_Plots"
+
+# Output paths dynamically inject the tag
+BMTGNN_PREDICTIONS = PROCESSED_DATA_DIR / "B-MTGNN" / f"predictions{TAG}.npy" 
+BMTGNN_CONFIDENCE = PROCESSED_DATA_DIR / "B-MTGNN" / f"confidence{TAG}.npy" 
+BMTGNN_HISTORY = PROCESSED_DATA_DIR / "B-MTGNN" / f"history_data{TAG}.npy" 
+BMTGNN_NAMES = PROCESSED_DATA_DIR / "B-MTGNN" / f"node_names{TAG}.npy"
 
 # B-MTGNN Comparison Subdirectories
 BMTGNN_GLOBAL_DIR = COMPARISON_PLOTS_DIR / "BMTGNN_Global"
