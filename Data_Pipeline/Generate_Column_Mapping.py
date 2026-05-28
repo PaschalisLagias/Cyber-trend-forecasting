@@ -26,7 +26,9 @@ PROJECT_ROOT = CURRENT_DIR.parent
 
 # Input paths for header extraction
 LEGACY_DATA_PATH = PROJECT_ROOT / "B-MTGNN" / "data" / "sm_data_g.csv"
-NEW_DATA_PATH = PROJECT_ROOT / "Data_Preparation" / "Cyber_Trend_Forecasting_All.csv"
+# NEW_DATA_PATH = PROJECT_ROOT / "Data_Preparation" / "Cyber_Trend_Forecasting_All.csv"
+# MARK 3 DATA:
+NEW_DATA_PATH = PROJECT_ROOT / "Data_Preparation" / "Cyber_Trend_Forecasting_All_v2.csv"
 
 # Output path for the mapping file
 OUTPUT_MAPPING_PATH = CURRENT_DIR / "column_mapping.csv"
