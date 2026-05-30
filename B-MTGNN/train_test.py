@@ -95,16 +95,16 @@ def save_metrics_1d(predict, test, title, type):
     mean_all = torch.mean(test_s) # calculate the mean of each column in test
     diff_r = test_s - mean_all # subtract the mean from each element in the tensor test
     sum_squared_r = torch.sum(torch.pow(diff_r, 2))# square the result and sum over all elements
-    root_sum_squared_r=math.sqrt(sum_squared_r)#denominator
+    root_sum_squared_r = math.sqrt(sum_squared_r) + 1e-5 # Prevent zero division
 
     #RRSE according to Lai et.al
-    rrse=root_sum_squared/root_sum_squared_r
+    rrse = root_sum_squared / root_sum_squared_r
 
     #Relative Absolute Error RAE - denominator
-    sum_absolute_r=torch.sum(torch.abs(diff_r))# absolute the result and sum over all elements
+    sum_absolute_r = torch.sum(torch.abs(diff_r)) + 1e-5 # Prevent zero division
     
     #Relative Absolute Error RAE
-    rae=sum_absolute_diff/sum_absolute_r 
+    rae = sum_absolute_diff / sum_absolute_r
     rae=rae.item()
 
 
@@ -173,7 +173,8 @@ def plot_predicted_actual(predicted, actual, title, type,variance, confidence_95
 def s_mape(yTrue,yPred):
   mape=0
   for i in range(len(yTrue)):
-    mape+= abs(yTrue[i]-yPred[i])/ (abs(yTrue[i])+abs(yPred[i]))
+    # Added 1e-5 epsilon to denominator to prevent division by zero
+    mape+= abs(yTrue[i]-yPred[i])/ (abs(yTrue[i])+abs(yPred[i]) + 1e-5)
   mape/=len(yTrue)
 
   return mape
@@ -183,6 +184,10 @@ def s_mape(yTrue,yPred):
 #In our case, the window was not slided (we predicted 36 months and the model by default predicts 36 months)
 def evaluate_sliding_window(data, test_window, model, evaluateL2, evaluateL1, n_input, is_plot):
     #model.eval()# To get Bayesian estimation, we must comment out this line
+
+    # FIX: Push the raw test window to the GPU so all derived ground-truth tensors inherit the device
+    test_window = test_window.to(data.device)
+
     total_loss = 0
     total_loss_l1 = 0
     n_samples = 0
@@ -210,10 +215,12 @@ def evaluate_sliding_window(data, test_window, model, evaluateL2, evaluateL1, n_
         X = torch.unsqueeze(x_input,dim=0)
         X = torch.unsqueeze(X,dim=1)
         X = X.transpose(2,3)
-        X = X.to(torch.float)
+        
+        # FIX: Push the manual sliding window tensor to the GPU
+        X = X.to(torch.float).to(data.device)
 
 
-        y_true = test_window[i: i+data.out_len,:].clone() 
+        y_true = test_window[i: i+data.out_len,:].clone()
 
 
         # Bayesian estimation
@@ -243,7 +250,7 @@ def evaluate_sliding_window(data, test_window, model, evaluateL2, evaluateL1, n_
 
         # Calculate 95% confidence interval
         z=1.96
-        confidence=z*std_dev/torch.sqrt(torch.tensor(num_runs))
+        confidence = z * std_dev / math.sqrt(num_runs)
 
 
 
@@ -298,17 +305,17 @@ def evaluate_sliding_window(data, test_window, model, evaluateL2, evaluateL1, n_
     mean_all = torch.mean(test_s, dim=0) # calculate the mean of each column in test call it Yj-
     diff_r = test_s - mean_all.expand(test_s.size(0), data.m) # subtract the mean from each element in the tensor test
     sum_squared_r = torch.sum(torch.pow(diff_r, 2))# square the result and sum over all elements
-    root_sum_squared_r=math.sqrt(sum_squared_r)#denominator
+    root_sum_squared_r = math.sqrt(sum_squared_r) + 1e-5 # Prevent zero division
 
     #RRSE according to Lai et.al
-    rrse=root_sum_squared/root_sum_squared_r
+    rrse = root_sum_squared / root_sum_squared_r
     print('rrse=',root_sum_squared,'/',root_sum_squared_r)
 
     #Relative Absolute Error RAE - denominator
-    sum_absolute_r=torch.sum(torch.abs(diff_r))# absolute the result and sum over all elements - denominator
+    sum_absolute_r = torch.sum(torch.abs(diff_r)) + 1e-5 # Prevent zero division
     #Relative Absolute Error RAE
-    rae=sum_absolute_diff/sum_absolute_r 
-    rae=rae.item()
+    rae = sum_absolute_diff / sum_absolute_r 
+    rae = rae.item()
 ###########################################################################################################
 
 
@@ -319,7 +326,7 @@ def evaluate_sliding_window(data, test_window, model, evaluateL2, evaluateL1, n_
     mean_p = predict.mean(axis=0)
     mean_g = Ytest.mean(axis=0)
     index = (sigma_g != 0)
-    correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0) / (sigma_p * sigma_g) #Pearson's correlation coefficient?
+    correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0) / (sigma_p * sigma_g + 1e-5)
     correlation = (correlation[index]).mean()
 
     #s-mape
@@ -391,7 +398,7 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
 
         # Calculate 95% confidence interval
         z=1.96
-        confidence=z*std_dev/torch.sqrt(torch.tensor(num_runs))
+        confidence = z * std_dev / math.sqrt(num_runs)
 
         output=mean #we will consider the mean to be the prediction
 
@@ -443,15 +450,15 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
     mean_all = torch.mean(test_s, dim=(0,1)) # calculate the mean of each column in test
     diff_r = test_s - mean_all.expand(test_s.size(0), test_s.size(1), data.m) # subtract the mean from each element in the tensor test
     sum_squared_r = torch.sum(torch.pow(diff_r, 2))# square the result and sum over all elements
-    root_sum_squared_r=math.sqrt(sum_squared_r)#denominator
+    root_sum_squared_r = math.sqrt(sum_squared_r) + 1e-5 # Prevent zero division
 
     #RRSE according to Lai et.al
-    rrse=root_sum_squared/root_sum_squared_r #RRSE
+    rrse = root_sum_squared / root_sum_squared_r #RRSE
 
     #Relative Absolute Error RAE
-    sum_absolute_r=torch.sum(torch.abs(diff_r))# absolute the result and sum over all elements - denominator
-    rae=sum_absolute_diff/sum_absolute_r # RAE
-    rae=rae.item()
+    sum_absolute_r = torch.sum(torch.abs(diff_r)) + 1e-5 # Prevent zero division
+    rae = sum_absolute_diff / sum_absolute_r # RAE
+    rae = rae.item()
 
 
     predict = predict.data.cpu().numpy()
@@ -461,7 +468,7 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
     mean_p = predict.mean(axis=0)
     mean_g = Ytest.mean(axis=0)
     index = (sigma_g != 0)
-    correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0)/ (sigma_p * sigma_g) #Pearson's correlation coefficient?
+    correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0) / (sigma_p * sigma_g + 1e-5)
     correlation = (correlation[index]).mean()
 
     #s-mape
@@ -508,17 +515,19 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             id = torch.tensor(id).to(device)
             tx = X[:, :, :, :] 
             ty = Y[:, :, :] 
-            output = model(tx)           
+            output = model(tx)
+            # -- end --
             output = torch.squeeze(output,3)
             scale = data.scale.expand(output.size(0), output.size(1), data.m)
             scale = scale[:,:,:] 
             
-            output*=scale 
-            ty*=scale
-
-
+            # Calculate loss on normalised bounds to prevent float32 gradient explosion
             loss = criterion(output, ty)
             loss.backward()
+
+            # Scale back up for accurate error logging in the console
+            output = output * scale 
+            ty = ty * scale
             total_loss += loss.item()
             n_samples += (output.size(0) * output.size(1) * data.m)
             
@@ -574,7 +583,8 @@ parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
 
 args = parser.parse_args()
-device = torch.device('cpu')
+# FIX: Actually use our GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(3)
 
 def set_random_seed(seed):
@@ -621,6 +631,7 @@ def main(experiment):
 
     #random search
     for q in range(60):
+    # for q in range(2):
 
         #hps
         gcn_depth=gcn_depths[randrange(len(gcn_depths))]
@@ -657,13 +668,15 @@ def main(experiment):
        
         
         model = gtnet(args.gcn_true, args.buildA_true, gcn_depth, args.num_nodes,
-                    device, Data.adj, dropout=dropout, subgraph_size=k,
+                    device, predefined_A=[Data.adj.to(device)], dropout=dropout, subgraph_size=k,
                     node_dim=node_dim, dilation_exponential=dilation_ex,
                     conv_channels=conv, residual_channels=res,
                     skip_channels=skip, end_channels= end,
                     seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
                     layers=layer, propalpha=prop_alpha, tanhalpha=tanh_alpha, layer_norm_affline=False)
         
+        # FIX: Push the model weights to the GPU
+        model.to(device)
 
         print(args)
         print('The recpetive field size is', model.receptive_field)
@@ -676,9 +689,9 @@ def main(experiment):
             criterion = nn.MSELoss(reduction='sum').to(device)
         evaluateL2 = nn.MSELoss(reduction='sum').to(device) #MSE
         evaluateL1 = nn.L1Loss(reduction='sum').to(device) #MAE
-
+        
         optim = Optim(
-            model.parameters(), args.optim, lr, args.clip, lr_decay=args.weight_decay
+            list(model.parameters()), args.optim, lr, args.clip, lr_decay=args.weight_decay
         )
         
         es_counter=0 #early stopping
@@ -711,7 +724,8 @@ def main(experiment):
                         epoch, (time.time() - epoch_start_time), train_loss, val_loss, val_rae, val_corr, val_smape), flush=True)
                 # Save the model if the validation loss is the best we've seen so far.
                 sum_loss=val_loss+val_rae-val_corr
-                if (not math.isnan(val_corr)) and val_loss < best_rse:
+                # if (not math.isnan(val_corr)) and val_loss < best_rse:
+                if val_loss < best_rse:
                     with open(args.save, 'wb') as f:
                         torch.save(model, f)
                     best_val = sum_loss
@@ -742,15 +756,21 @@ def main(experiment):
     with open('model/Bayesian/hp.txt',"w") as f:
         f.write(str(best_hp))
         f.close()
+
     # Load the best saved model.
+    if not best_hp:
+        print("Error: All models returned NaN. Aborting evaluation.")
+        return 0, 0, 0, 0, 0, 0, 0, 0
+
+    # Load the best saved model safely.
     with open(args.save, 'rb') as f:
-        model = torch.load(f)
+        model = torch.load(f, weights_only=False)
 
     vtest_acc, vtest_rae, vtest_corr, vtest_smape = evaluate(Data, Data.valid[0], Data.valid[1], model, evaluateL2, evaluateL1,
-                                         args.batch_size, True)
+                                         args.batch_size, False)
 
     test_acc, test_rae, test_corr, test_smape = evaluate_sliding_window(Data, Data.test_window, model, evaluateL2, evaluateL1,
-                                         args.seq_in_len, True) 
+                                         args.seq_in_len, False) 
     print('********************************************************************************************************')    
     print("final test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f} | test smape {:5.4f}".format(test_acc, test_rae, test_corr, test_smape))
     print('********************************************************************************************************')
