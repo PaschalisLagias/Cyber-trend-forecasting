@@ -8,7 +8,7 @@ from net import gtnet
 import numpy as np
 import importlib
 import random
-from o_util import *
+from util import * # FIX: Point to the patched, NaN-scrubbed data loader
 from trainer import Optim
 import sys
 from random import randrange
@@ -48,11 +48,13 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             scale = data.scale.expand(output.size(0), output.size(1), data.m)
             scale = scale[:,:,:] 
             
-            output*=scale 
-            ty*=scale
-
+            # FIX: Calculate loss on normalised bounds to prevent float32 gradient explosion
             loss = criterion(output, ty)
             loss.backward()
+            
+            # Scale back up for accurate error logging in the console
+            output = output * scale 
+            ty = ty * scale
             total_loss += loss.item()
             n_samples += (output.size(0) * output.size(1) * data.m)
             
@@ -104,7 +106,8 @@ parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
 
 args = parser.parse_args()
-device = torch.device('cpu')
+# FIX: Utilize the GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(3)
 
 def set_random_seed(seed):
@@ -149,13 +152,15 @@ Data = DataLoaderS(args.data, 0.43, 0.30, device, args.horizon, args.seq_in_len,
 
 
 model = gtnet(args.gcn_true, args.buildA_true, gcn_depth, args.num_nodes,
-            device, Data.adj, dropout=dropout, subgraph_size=k,
+            device, predefined_A=[Data.adj.to(device)], dropout=dropout, subgraph_size=k,
             node_dim=node_dim, dilation_exponential=dilation_ex,
             conv_channels=conv, residual_channels=res,
             skip_channels=skip, end_channels= end,
             seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
             layers=layer, propalpha=prop_alpha, tanhalpha=tanh_alpha, layer_norm_affline=False)
 
+# FIX: Push the model weights to the GPU
+model.to(device)
 
 
 print(args)
@@ -172,7 +177,7 @@ evaluateL1 = nn.L1Loss(reduction='sum').to(device) #MAE
 
 
 optim = Optim(
-    model.parameters(), args.optim, lr, args.clip, lr_decay=args.weight_decay
+    list(model.parameters()), args.optim, lr, args.clip, lr_decay=args.weight_decay
 )
 
 # At any point you can hit Ctrl + C to break out of training early.
