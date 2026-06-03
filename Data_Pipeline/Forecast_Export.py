@@ -28,25 +28,30 @@ import sys
 
 
 # --- Path Configuration ---
-# --- Path Configuration ---
 from pathlib import Path
 
+# Ensure Python can find the Config folder
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
-# Input Paths (pointing to the newly processed data and model)
-DATA_DIR = PROJECT_ROOT / "Processed_Data" / "B-MTGNN"
-DATA_FILE = DATA_DIR / 'sm_data.txt'
-MODEL_FILE = DATA_DIR / 'o_model.pt'
+from Config.Paths import *    
 
-# Legacy paths required for structural mapping (Updated to point to Zaid's original file)
-LEGACY_NODES_FILE = PROJECT_ROOT / 'B-MTGNN' / 'data' / 'data.csv'
+# Inherit paths directly from Config
+DATA_FILE = BMTGNN_SM_DATA_TXT 
+MODEL_FILE = BMTGNN_DIR / 'model' / 'Bayesian' / 'o_model.pt'
+MAPPING_FILE = ROOT_DIR / 'Data_Pipeline' / 'column_mapping.csv'
 
-# Output paths
-PREDS_SAVE_PATH = DATA_DIR / 'predictions.npy'
-CONF_SAVE_PATH = DATA_DIR / 'confidence.npy'
-HIST_SAVE_PATH = DATA_DIR / 'history_data.npy'
-NAMES_SAVE_PATH = DATA_DIR / 'node_names.npy'
+# Output paths dynamically inject the tag from Paths.py
+PREDS_SAVE_PATH = BMTGNN_PREDICTIONS
+CONF_SAVE_PATH = BMTGNN_CONFIDENCE
+HIST_SAVE_PATH = BMTGNN_HISTORY
+NAMES_SAVE_PATH = BMTGNN_NAMES
+
+# # Legacy paths required for structural mapping (Updated to point to Zaid's original file)
+# # --- Mark 2 Legacy Path (Maintained for Reproducibility) ---
+# LEGACY_NODES_FILE = PROJECT_ROOT / 'B-MTGNN' / 'data' / 'data.csv'
 
 # --- The Fix: Inject B-MTGNN into the Python Path ---
 B_MTGNN_DIR = PROJECT_ROOT / 'B-MTGNN'
@@ -54,17 +59,31 @@ if str(B_MTGNN_DIR) not in sys.path:
     sys.path.append(str(B_MTGNN_DIR))
     print(f"Injected {B_MTGNN_DIR} into system path so PyTorch can find 'net.py'")
 
-def create_columns(file_name):
-    """Extracts column names and index mapping from the legacy CSV."""
+def create_columns(file_name, is_mark3=True):
+    """
+    Extracts column names and index mapping.
+    Supports both Mark 2 legacy format and Mark 3 column mapping.
+    """
     col_name = []
     col_index = {}
+    
     with open(file_name, 'r') as f:
         reader = csv.reader(f)
-        col_name = [c for c in next(reader)]
-        if 'Date' in col_name[0]:
-            col_name = col_name[1:]
+        
+        if not is_mark3:
+            # --- Mark 2 Legacy Logic ---
+            col_name = [c for c in next(reader)]
+            if 'Date' in col_name[0]:
+                col_name = col_name[1:]
+        else:
+            # --- Mark 3 Mapping Logic ---
+            next(reader) # Skip the header row
+            for row in reader:
+                col_name.append(row[1])
+                
         for i, c in enumerate(col_name):
             col_index[c] = i
+            
         return col_name, col_index
 
 def extract_forecast():
@@ -89,7 +108,11 @@ def extract_forecast():
         print(f"Failed to load sm_data.txt: {e}")
         sys.exit(1)
 
-    col_names, _ = create_columns(LEGACY_NODES_FILE)
+  # For Mark 3 Execution:
+    col_names, _ = create_columns(MAPPING_FILE, is_mark3=True)
+    
+    # NOTE: To revert to Mark 2, simply change the above line to:
+    # col_names, _ = create_columns(LEGACY_NODES_FILE, is_mark3=False)
 
     # 3. Normalise Data (Required by the model architecture)
     scale = np.ones(m)
@@ -99,18 +122,25 @@ def extract_forecast():
         scale[i] = max_val if max_val > 0 else 1.0
         dat[:, i] = rawdat[:, i] / scale[i]
 
+    # FIX: Initialise Device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     # 4. Prepare the final input window (P=10 lookback)
     P = 10 
     X = torch.from_numpy(dat[-P:, :]) 
     X = torch.unsqueeze(X, dim=0)
     X = torch.unsqueeze(X, dim=1)
-    X = X.transpose(2, 3).to(torch.float)
+    # FIX: Push X to the GPU
+    X = X.transpose(2, 3).to(torch.float).to(device)
 
     # 5. Load Model
     print(f"Loading model weights from: {MODEL_FILE.relative_to(PROJECT_ROOT)}")
     with open(MODEL_FILE, 'rb') as f:
         # weights_only=False required for legacy .pt files
         model = torch.load(f, weights_only=False)
+    
+    # FIX: Ensure model is explicitly on the GPU
+    model.to(device)
 
     # 6. Bayesian Estimation (Monte Carlo Runs)
     num_runs = 10
@@ -134,18 +164,19 @@ def extract_forecast():
     std_dev = torch.std(outputs, dim=0)
     
     z = 1.96 # Z-score for 95% confidence
-    confidence = z * std_dev / torch.sqrt(torch.tensor(num_runs))
+    # FIX: Use np.sqrt to avoid CPU tensor initialisation crash
+    confidence = z * std_dev / np.sqrt(num_runs)
 
     # 8. Inverse Transform (Scale back to real counts)
-    # Using the exact same scale array used during preprocessing
+    # FIX: Pull GPU tensors to CPU and convert to numpy BEFORE multiplying by the numpy scale array
     dat_unscaled = dat * scale
-    Y_unscaled = Y * scale
-    confidence_unscaled = confidence * scale
+    Y_unscaled = Y.cpu().numpy() * scale
+    confidence_unscaled = confidence.cpu().numpy() * scale
 
     # 9. Format Tensors to NumPy Arrays 
     # Add a dummy batch dimension (1, 36, 123) to match Vision/PDFormer outputs exactly
-    preds_array = np.expand_dims(Y_unscaled.cpu().numpy(), axis=0)
-    conf_array = np.expand_dims(confidence_unscaled.cpu().numpy(), axis=0)
+    preds_array = np.expand_dims(Y_unscaled, axis=0)
+    conf_array = np.expand_dims(confidence_unscaled, axis=0)
     hist_array = dat_unscaled
     names_array = np.array(col_names)
 
