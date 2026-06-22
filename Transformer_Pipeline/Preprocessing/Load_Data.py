@@ -1,28 +1,61 @@
 import os
+from typing import Optional
+
 import pandas as pd
 
 
+DATASET_SCHEMAS = {
+    "cyber_trend": {
+        "date_column": "Date",
+        "date_format": "%b-%y",      # e.g. "Jul-11"
+        "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All.csv",
+    },
+    "csis": {
+        "date_column": "Period",
+        "date_format": "%m/%Y",       # e.g. "04/2006"
+        "default_path": "../../Data_Preparation/CSIS/csis_output_20260404-01.csv",
+    },
+    "mark3": {
+        "date_column": "Date",
+        "date_format": "%b-%y",       # e.g. "Jul-11"
+        "default_path": "../../Processed_Data/VisionTS/Mark3_Clipped_Data.csv",
+    },
+}
+
+
 def load_cyber_threat_data(
-    file_path: str = "../../Data_Preparation/Cyber_Trend_Forecasting_All.csv",
+    file_path: Optional[str] = None,
+    dataset: str = "cyber_trend",
 ):  # -> pd.DataFrame | None:
     """
     Loads and preprocesses cyber threat time-series data from a CSV file.
 
-    This function resolves the file path relative to the script's location,
-    parses the 'Date' column as the datetime index, and sorts the data chronologically.
+    Resolves the file path relative to the script's location, parses the
+    dataset's date column as the datetime index, and sorts chronologically.
 
     Args:
-        file_path (str, optional): The relative path to the CSV file.
-            Defaults to '../../Data_Preparation/Cyber_Trend_Forecasting_All.csv'.
+        file_path (str, optional): Path to the CSV file. If None, uses the
+            default path for the selected dataset.
+        dataset (str): Dataset schema to use. One of: 'cyber_trend', 'csis'.
+            Determines the date column name and parsing format.
 
     Returns:
-        pd.DataFrame | None: A pandas DataFrame indexed by Date if loading is successful;
-            returns None if the file is not found or an error occurs.
+        pd.DataFrame | None: A pandas DataFrame indexed by date if loading is
+            successful; None if the file is not found or an error occurs.
     """
+    if dataset not in DATASET_SCHEMAS:
+        print(f"Error: Unknown dataset '{dataset}'. Known: {list(DATASET_SCHEMAS)}")
+        return None
+
+    schema = DATASET_SCHEMAS[dataset]
+    date_column = schema["date_column"]
+    date_format = schema["date_format"]
+
+    if file_path is None:
+        file_path = schema["default_path"]
+
     script_dir = os.path.dirname(__file__)
 
-    # UPDATE TO PATH HANDLING
-    # Handle both absolute and relative paths safely
     if os.path.isabs(file_path):
         abs_file_path = file_path
     else:
@@ -34,16 +67,17 @@ def load_cyber_threat_data(
         return None
 
     try:
-        # Read CSV without parsing dates initially
-        print(f"Loading raw data...")
+        print(f"Loading raw data (dataset='{dataset}')...")
         df = pd.read_csv(abs_file_path)
 
-        # Explicitly parse the 'Date' column
-        print("Parsing dates with format '%b-%y'...")
-        df["Date"] = pd.to_datetime(df["Date"], format="%b-%y")
+        if date_column not in df.columns:
+            print(f"Error: Expected date column '{date_column}' not in CSV. Found: {list(df.columns[:5])}...")
+            return None
 
-        # Set Index and Sort Chronologically
-        df.set_index("Date", inplace=True)
+        print(f"Parsing dates from column '{date_column}' with format '{date_format}'...")
+        df[date_column] = pd.to_datetime(df[date_column], format=date_format)
+
+        df.set_index(date_column, inplace=True)
         df.sort_index(inplace=True)
 
         print("Data loaded and sorted successfully.")
