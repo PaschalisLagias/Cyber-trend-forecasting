@@ -86,12 +86,15 @@ def compute_additional_metrics(preds: np.ndarray, trues: np.ndarray) -> dict:
 class TemporalAwareLoss(nn.Module):
     """Combined L1 + temporal difference + correlation loss for time series."""
 
-    def __init__(self, temporal_weight: float = 0.3, corr_weight: float = 0.3, eps: float = 1e-7):
+    def __init__(self, temporal_weight: float = 0.3, corr_weight: float = 0.3,
+                 mse_weight: float = 0.0, eps: float = 1e-7):
         super().__init__()
         self.temporal_weight = temporal_weight
         self.corr_weight = corr_weight
+        self.mse_weight = mse_weight
         self.eps = eps
         self.l1_loss = nn.L1Loss()
+        self.mse_loss = nn.MSELoss()
 
     def pearson_correlation_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -135,7 +138,11 @@ class TemporalAwareLoss(nn.Module):
         # Correlation loss: maximise per-feature correlation
         corr_loss = self.pearson_correlation_loss(pred, target)
 
-        return static_loss + self.temporal_weight * temporal_loss + self.corr_weight * corr_loss
+        # Squared-error loss: directly targets the MSE that RSE is based on
+        mse_loss = self.mse_loss(pred, target)
+
+        return (static_loss + self.temporal_weight * temporal_loss
+                + self.corr_weight * corr_loss + self.mse_weight * mse_loss)
 
 
 class VisionTSppTrainer:
@@ -160,6 +167,7 @@ class VisionTSppTrainer:
         self.criterion = TemporalAwareLoss(
             temporal_weight=config.temporal_weight,
             corr_weight=config.corr_weight,
+            mse_weight=config.mse_weight,
         )
         # Optional linear warmup before cosine annealing.
         if config.warmup_epochs > 0 and config.warmup_epochs < config.epochs:
@@ -499,7 +507,7 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=str,
         default="cyber_trend",
-        choices=["cyber_trend", "csis", "mark3"],
+        choices=["cyber_trend", "csis", "mark3", "v2_1"],
         help="Source dataset (default: cyber_trend). When --data_dir is not given, data is loaded from Processed_Data/visionpp/<dataset>/.",
     )
 
@@ -532,6 +540,8 @@ def parse_args() -> argparse.Namespace:
                         help="Weight for temporal-difference term (config default: 0.3)")
     parser.add_argument("--corr_weight", type=float,
                         help="Weight for Pearson-correlation term (config default: 1.0)")
+    parser.add_argument("--mse_weight", type=float,
+                        help="Weight for MSE term (config default: 0.0)")
 
     # Optimiser / regularisation
     parser.add_argument("--weight_decay", type=float,

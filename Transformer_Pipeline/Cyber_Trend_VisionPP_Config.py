@@ -15,6 +15,7 @@ DATASETS = {
         "defaults": {
             "finetune_type": "attn",
             "patience": 15,
+            "mse_weight": 1.0,
         },
     },
     "mark3": {
@@ -24,6 +25,11 @@ DATASETS = {
             "finetune_type": "attn",
             "patience": 15,
         },
+    },
+    "v2_1": {
+        "raw_relpath": "Data_Preparation/Cyber_Trend_Forecasting_All_v2_1.csv",
+        "subdir": "v2_1",
+        "defaults": {},
     },
 }
 
@@ -38,6 +44,7 @@ class CyberVisionTSppConfig:
         "periodicity": 12,
         "norm_const": 0.4,
         "detrend": False,
+        "mse_weight": 0.0,
     })
 
     script_dir: Path = field(init=False)
@@ -73,6 +80,7 @@ class CyberVisionTSppConfig:
     patience: int = 50
     temporal_weight: float = 0.3  # Weight for temporal difference loss component
     corr_weight: float = 1.0  # Weight for correlation loss component
+    mse_weight: float = 0.0  # Weight for squared-error loss component (directly targets RSE)
 
     # Hps
     weight_decay: float = 0.0

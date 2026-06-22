@@ -853,7 +853,7 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=str,
         default="cyber_trend",
-        choices=["cyber_trend", "csis", "mark3"],
+        choices=["cyber_trend", "csis", "mark3", "v2_1"],
         help="Dataset to visualise (default: cyber_trend). Reads from Results/<dataset>/ "
              "and writes to Results/<dataset>/vision_plots/.",
     )

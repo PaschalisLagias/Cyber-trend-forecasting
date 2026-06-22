@@ -20,6 +20,11 @@ DATASET_SCHEMAS = {
         "date_format": "%b-%y",       # e.g. "Jul-11"
         "default_path": "../../Processed_Data/VisionTS/Mark3_Clipped_Data.csv",
     },
+    "v2_1": {
+        "date_column": "Date",
+        "date_format": "%b-%y",       # e.g. "Jul-11"
+        "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_1.csv",
+    },
 }
 
 

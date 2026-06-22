@@ -21,6 +21,7 @@ DATASET_LAYOUT = {
     "cyber_trend": {"vision_subdir": "", "visionpp_subdir": "cyber_trend"},
     "csis":         {"vision_subdir": "csis", "visionpp_subdir": "csis"},
     "mark3":        {"vision_subdir": "mark3", "visionpp_subdir": "mark3"},
+    "v2_1":         {"vision_subdir": "v2_1", "visionpp_subdir": "v2_1"},
 }
 
 

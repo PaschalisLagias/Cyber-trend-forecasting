@@ -10,7 +10,7 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Results subdir per dataset
-_DATASET_SUBDIR = {"csis": "csis", "cyber_trend": "cyber_trend", "mark3": "mark3"}
+_DATASET_SUBDIR = {"csis": "csis", "cyber_trend": "cyber_trend", "mark3": "mark3", "v2_1": "v2_1"}
 HORIZONS = [3, 6, 12, 24]
 
 

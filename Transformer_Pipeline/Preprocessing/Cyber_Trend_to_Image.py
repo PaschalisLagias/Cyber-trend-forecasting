@@ -81,6 +81,35 @@ MARK3_VIGNETTE_FEATURES = [
     "Solution_TAINT_ANALYSIS_Papers",
 ]
 
+# v2.1 dataset
+V2_1_VIGNETTE_FEATURES = [
+    "Papers_Disinformation/Misinformation",
+    "Papers_Supply_Chain",
+    "Solution_SOURCE_IDENTIFICATION_Papers",
+    "Solution_DATA_AUGMENTATION_Papers",
+    "Solution_RANK_CORRELATION_Papers",
+    "Defacement-IN",
+    "Papers_Unknown_Attack",
+    "Papers_Cryptolocker",
+    "Solution_VULNERABILITY_ASSESSMENT_Papers",
+    "Solution_SIEM_Papers",
+    "War_Conflict_PS",
+    "Solution_NOISE_INJECTION_Papers",
+    "War_Conflict_CA",
+    "Solution_DIMENSIONALITY_REDUCTION_Papers",
+    "JP_holiday",
+    "Trojan-IR",
+    "Papers_Drive_by",
+    "Solution_NETWORK_SEGMENTATION_Papers",
+    "Solution_PATCH_MANAGEMENT_Papers",
+    "Solution_DISTRIBUTED_LEDGERS_Papers",
+    "Solution_DATA_LOSS_PREVENTION_Papers",
+    "War_Conflict_GB",
+    "Solution_SUPPLY_CHAIN_RISK_MANAGEMENT_Papers",
+    "Solution_OUTLIER_DETECTION_Papers",
+    "Solution_VULNERABILITY_SCANNER_Papers",
+]
+
 # Per-dataset preprocessing.
 DATASETS = {
     "cyber_trend": {
@@ -116,6 +145,19 @@ DATASETS = {
             "window_first": True,
             "hybrid_selection": True,
             "n_features": 15,
+            "variance_threshold": 0.01,
+            "force_vignette_features": True,
+            "correlation_threshold": 0.7,
+        },
+    },
+    "v2_1": {
+        "raw_relpath": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_1.csv",
+        "out_subdir": "v2_1",
+        "vignette": V2_1_VIGNETTE_FEATURES,
+        "defaults": {
+            "window_first": True,
+            "hybrid_selection": True,
+            "n_features": 25,
             "variance_threshold": 0.01,
             "force_vignette_features": True,
             "correlation_threshold": 0.7,
