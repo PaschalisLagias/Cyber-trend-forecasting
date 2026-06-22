@@ -1,11 +1,10 @@
 """
-Evaluate_VisionPP.py - Evaluation script for VisionTS++ model.
-
 Computes metrics at multiple forecast horizons and saves results.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import pickle
 import sys
@@ -73,7 +72,7 @@ def compute_metrics_per_horizon(preds: np.ndarray, trues: np.ndarray, horizons: 
                 "CORR": corr,
             })
 
-    # --- 2. Overall Summary (Bottom Row) ---
+    # --- 2. Overall Summary  ---
     p_all = preds[:, :max_h, :].flatten()
     t_all = trues[:, :max_h, :].flatten()
 
@@ -103,15 +102,27 @@ def compute_metrics_per_horizon(preds: np.ndarray, trues: np.ndarray, horizons: 
     return pd.DataFrame(results)
 
 
-def evaluate():
-    """Run evaluation on the test set."""
+def evaluate(dataset: str = "cyber_trend", use_custom_vit: bool = False,
+             customvit_layers: int | None = None,
+             customvit_heads: int | None = None,
+             customvit_dim: int | None = None):
+    """Run evaluation on the test set for the given dataset."""
     config = CyberVisionTSppConfig()
+    overrides: dict = {"dataset": dataset, "use_custom_vit": use_custom_vit}
+    if customvit_layers is not None:
+        overrides["customvit_layers"] = customvit_layers
+    if customvit_heads is not None:
+        overrides["customvit_heads"] = customvit_heads
+    if customvit_dim is not None:
+        overrides["customvit_dim"] = customvit_dim
+    config.update_from_dict(overrides)
     data_dir = str(config.output_dir)
 
     print(f"--- Loading Test Data from {data_dir} ---")
 
-    # Load test dataset
-    test_dataset = CyberTrendImageDataset(data_dir=data_dir, split="test")
+    # Load test dataset (detrend if the config says so; same as Train_VisionPP)
+    detrend = getattr(config, "detrend", False)
+    test_dataset = CyberTrendImageDataset(data_dir=data_dir, split="test", detrend=detrend)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     sample = test_dataset[0]
@@ -123,36 +134,54 @@ def evaluate():
     print(f"Dimensions: context={context_len}, pred={pred_len}, features={num_features}")
 
     # Load model
-    print(f"\n--- Loading VisionTS++ Model ---")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model_config = {
-        "model_arch": config.model_arch,
-        "finetune_type": config.finetune_type,
-        "ckpt_dir": str(config.ckpt_dir),
-        "load_pretrained": config.load_pretrained,
-        "periodicity": config.periodicity,
-        "norm_const": config.norm_const,
-        "align_const": config.align_const,
-        "interpolation": config.interpolation,
-        "quantile": config.quantile,
-        "color": config.color,
-    }
-
-    model = create_visiontspp_model(
-        config=model_config,
-        context_len=context_len,
-        pred_len=pred_len,
-        num_features=num_features,
-        device=str(device),
-    )
+    if config.use_custom_vit:
+        print(f"\n--- Loading Custom ViT ---")
+        from Models.CustomViT_Wrapper import CustomViTModel
+        vit_config = {
+            "customvit_layers": config.customvit_layers,
+            "customvit_heads": config.customvit_heads,
+            "customvit_dim": config.customvit_dim,
+            "customvit_patch_size": config.customvit_patch_size,
+            "customvit_dropout": config.customvit_dropout,
+            "use_aux_direction": config.use_aux_direction,
+        }
+        model = CustomViTModel(
+            config=vit_config,
+            context_len=context_len,
+            pred_len=pred_len,
+            n_features=num_features,
+            finetune_type=config.finetune_type,
+            load_pretrained=False,  # weights loaded from the trained checkpoint below
+        ).to(device)
+    else:
+        print(f"\n--- Loading VisionTS++ Model ---")
+        model_config = {
+            "model_arch": config.model_arch,
+            "finetune_type": config.finetune_type,
+            "ckpt_dir": str(config.ckpt_dir),
+            "load_pretrained": config.load_pretrained,
+            "periodicity": config.periodicity,
+            "norm_const": config.norm_const,
+            "align_const": config.align_const,
+            "interpolation": config.interpolation,
+            "quantile": config.quantile,
+            "color": config.color,
+        }
+        model = create_visiontspp_model(
+            config=model_config,
+            context_len=context_len,
+            pred_len=pred_len,
+            num_features=num_features,
+            device=str(device),
+        )
 
     # Load checkpoint
     checkpoint_path = config.checkpoint_dir / "visiontspp_best.pt"
     if checkpoint_path.exists():
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        # Added strict=False to bypass missing quantile heads
-        model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        model.load_state_dict(checkpoint["model_state_dict"], strict=False) # Added strict=False to bypass missing quantile heads
         print(f"Loaded weights from {checkpoint_path}")
         print(f"  Checkpoint epoch: {checkpoint.get('epoch', 'N/A')}")
         print(f"  Checkpoint val_loss: {checkpoint.get('val_loss', 'N/A'):.6f}")
@@ -169,11 +198,24 @@ def evaluate():
     with torch.no_grad():
         for batch in test_loader:
             x = batch["input"].to(device)
-            y_true = batch["target"]
+            y_true = batch["target"].to(device)
 
             y_pred = model(x)
+
+            # Reconstruct in original space if the dataset was detrended.
+            if detrend and "trend_slope" in batch:
+                slope = batch["trend_slope"].to(device).unsqueeze(1)        # (B, 1, V)
+                intercept = batch["trend_intercept"].to(device).unsqueeze(1)  # (B, 1, V)
+                t_pred = torch.arange(
+                    context_len, context_len + pred_len,
+                    device=device, dtype=slope.dtype,
+                ).view(1, -1, 1)
+                pred_trend = slope * t_pred + intercept
+                y_pred = y_pred + pred_trend
+                y_true = y_true + pred_trend
+
             all_preds.append(y_pred.cpu().numpy())
-            all_targets.append(y_true.numpy())
+            all_targets.append(y_true.cpu().numpy())
 
     preds = np.concatenate(all_preds, axis=0)
     trues = np.concatenate(all_targets, axis=0)
@@ -192,26 +234,23 @@ def evaluate():
     print(f"{'=' * 60}")
     print(metrics_df.to_string(index=False, float_format=lambda x: f"{x:.6f}"))
 
-    # Save results
-    results_dir = SCRIPT_DIR / "Results"
-    results_dir.mkdir(exist_ok=True)
+    # Save results.
+    results_dir = config.results_dir
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     csv_path = results_dir / "visionpp_evaluation_results.csv"
     metrics_df.to_csv(csv_path, index=False)
     print(f"\nSaved results table to {csv_path}")
 
-    # Save raw predictions
     print(f"\n--- Saving Raw Predictions ---")
     np.save(results_dir / "visionpp_predictions.npy", preds)
     np.save(results_dir / "visionpp_ground_truth.npy", trues)
     print(f"Saved prediction arrays to {results_dir}/")
 
-    # Also save to data directory for visualization
     np.save(config.output_dir / "predictions.npy", preds)
     np.save(config.output_dir / "ground_truth.npy", trues)
     print(f"Saved prediction arrays to {config.output_dir}/")
 
-    # Print data preprocessing summary
     print(f"\n--- Data Preprocessing Summary ---")
     metadata_path = Path(data_dir) / "metadata.pkl"
     if metadata_path.exists():
@@ -227,5 +266,31 @@ def evaluate():
                 print(f"PCA variance: {pca_var:.1%}")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate VisionTS++ on a preprocessed dataset.")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="cyber_trend",
+        choices=["cyber_trend", "csis", "mark3"],
+        help="Dataset to evaluate (default: cyber_trend). Drives input data dir and output Results subdir.",
+    )
+    parser.add_argument(
+        "--use-custom-vit",
+        action="store_true",
+        help="Build and evaluate the CustomViT instead of VisionTS++ (matches the model trained by Train_VisionPP --use_custom_vit).",
+    )
+    parser.add_argument("--customvit-layers", type=int, help="Override CustomViT n_layers (must match the trained model).")
+    parser.add_argument("--customvit-heads", type=int, help="Override CustomViT n_heads (must match the trained model).")
+    parser.add_argument("--customvit-dim", type=int, help="Override CustomViT embed_dim (must match the trained model).")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    evaluate()
+    args = parse_args()
+    evaluate(
+        dataset=args.dataset, use_custom_vit=args.use_custom_vit,
+        customvit_layers=args.customvit_layers,
+        customvit_heads=args.customvit_heads,
+        customvit_dim=args.customvit_dim,
+    )
