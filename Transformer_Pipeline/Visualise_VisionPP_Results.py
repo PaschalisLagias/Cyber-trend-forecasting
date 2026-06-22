@@ -13,6 +13,7 @@ Usage:
     $ python Visualise_VisionPP_Results.py
 """
 
+import argparse
 import os
 import sys
 import csv
@@ -185,7 +186,7 @@ def double_save_figure(output_dir, filename, show_inline=True, fig=None):
         output_dir (Path): The target directory to save the primary image.
         filename (str): The name of the file to save (e.g., 'plot.png').
         show_inline (bool, optional): Whether to display the plot inline in the Jupyter Notebook. Defaults to True.
-        fig (matplotlib.figure.Figure, optional): The specific figure object to save and close. 
+        fig (matplotlib.figure.Figure, optional): The specific figure object to save and close.
                                                   If None, uses the current active pyplot figure. Defaults to None.
     """
     target = fig if fig else plt
@@ -193,7 +194,7 @@ def double_save_figure(output_dir, filename, show_inline=True, fig=None):
     # 1. Save static file for README/Dashboard
     main_path = output_dir / filename
     target.savefig(main_path, dpi=300, bbox_inches='tight')
-    
+
     # 2. Save timestamped archive copy
     archive_dir = output_dir / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -201,19 +202,19 @@ def double_save_figure(output_dir, filename, show_inline=True, fig=None):
     archive_path = archive_dir / f"{name}_{RUN_TIMESTAMP}{ext}"
     target.savefig(archive_path, dpi=300, bbox_inches='tight')
 
-    # Force Jupyter to display it cleanly, then destroy it to prevent blank duplicates
+    # Force Jupyter to display it cleanly, then
     if show_inline:
         if fig:
             from IPython.display import display
             display(fig)
         else:
             plt.show()
-    
+
     if fig:
         plt.close(fig)
     else:
         plt.close()
-        
+
     print(f"Saved: {filename} (and archived to {archive_dir.name}/)")
 
 
@@ -230,22 +231,22 @@ def save_table_as_image(df, title, output_dir):
     latex_path = output_dir / f"{title}.tex"
     with open(latex_path, 'w') as f:
         f.write(df.to_latex(index=False, float_format="%.3f"))
-    
+
     # Enforce strict 3-decimal formatting for display (e.g., 0.500 instead of 0.5)
     display_df = df.copy()
     for col in display_df.select_dtypes(include=['float', 'float64']).columns:
         display_df[col] = display_df[col].apply(lambda x: f"{x:.3f}")
-    
+
     fig, ax = plt.subplots(figsize=(10, len(display_df) * 0.5 + 1))
     ax.axis('tight'); ax.axis('off')
-    
+
     # Pass the strictly formatted string values to the table
     table = ax.table(cellText=display_df.values, colLabels=display_df.columns, loc='center', cellLoc='center')
     table.auto_set_font_size(False); table.set_fontsize(10); table.scale(1.2, 1.5)
-    
+
     # Apply the matched evaluation table styling
     for (row, col), cell in table.get_celld().items():
-        if row == 0: 
+        if row == 0:
             # Header Row: Darker gray background, standard border
             cell.set_text_props(weight='bold')
             cell.set_facecolor('#d9d9d9')
@@ -254,11 +255,35 @@ def save_table_as_image(df, title, output_dir):
             # Standard Data Rows: White background, thin borders (No bottom highlight)
             cell.set_edgecolor('gray')
             cell.set_linewidth(0.5)
-    
+
     plt.title(title.replace('_', ' '), fontsize=14, pad=10)
-    
+
     # Double Save Logic
     double_save_figure(output_dir, f"{title}.png")
+
+
+def _dataset_start_date(config):
+    """Return the first observed month for the dataset referenced by `config`.
+
+    Reads the raw CSV's first row to find the date and falls back to a sensible
+    default (2011-07-01 for cyber_trend's historical start) if the CSV can't be
+    read. Keeps Fig4's x-axis honest across datasets that span different ranges.
+    """
+    fallback = datetime(2011, 7, 1)
+    if config is None:
+        return fallback
+    try:
+        df = pd.read_csv(config.raw_data_path, nrows=1)
+        first_cell = str(df.iloc[0, 0])
+        # cyber_trend: 'Jul-11'  /  csis: '04/2006'
+        for fmt in ("%b-%y", "%m/%Y"):
+            try:
+                return datetime.strptime(first_cell, fmt)
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return fallback
 
 
 def load_full_history(config, col_names):
@@ -281,8 +306,9 @@ def load_full_history(config, col_names):
 
     try:
         df = pd.read_csv(csv_path)
-        if 'Date' in df.columns or 'month' in df.columns.str.lower():
-            df = df.select_dtypes(include=[np.number])
+        # Always drop the date/period column (whatever it's named) so only numeric
+        # feature columns remain. Works for both cyber_trend ('Date') and csis ('Period').
+        df = df.select_dtypes(include=[np.number])
 
         full_history = np.zeros((len(df), len(col_names)))
         df_cols_clean = [clean_string(c).lower() for c in df.columns]
@@ -305,30 +331,30 @@ def load_full_history(config, col_names):
 
 # ------------------- 1. Data Loading -------------------
 
-def load_visualisation_data():
+def load_visualisation_data(dataset: str = "cyber_trend"):
     """
     Loads and prepares all necessary data for the VisionPP visualisation pipeline.
 
-    It retrieves:
-    1. Model predictions (visionpp_predictions.npy) — averaged across test samples.
-    2. Feature names from metadata.pkl.
-    3. The knowledge graph structure (graph.csv).
-    4. Historical ground truth data (CSV or .npy fallback).
+    Args:
+        dataset: One of 'cyber_trend' or 'csis'. Drives raw CSV path,
+            Results subdir, and whether to load the knowledge-graph structure
+            (CSIS has no Solution_* columns, so graph-driven plots are skipped).
 
     Returns:
         dict: A dictionary containing 'preds_window', 'history_data', 'col_names',
-              'target_groups', 'trues_forecast_period', and 'output_dir'.
+              'target_groups', 'trues_forecast_period', 'output_dir', and
+              'has_solutions' (False when graph-driven plots should be skipped).
               Returns None if critical files are missing.
     """
     config = CyberVisionTSppConfig()
-    data_dir = current_dir / "Results"
-    
-    # FOLDER SEPARATION FIX: Changed from 'plots_paper_style' to 'vision_plots'
+    config.update_from_dict({"dataset": dataset})
+    data_dir = config.results_dir
     plot_output_dir = data_dir / 'vision_plots'
     plot_output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("--- Loading VisionPP Visualisation Data ---")
+    print(f"--- Loading VisionPP Visualisation Data (dataset='{dataset}') ---")
+    print(f"Results dir: {data_dir}")
 
     preds_path = data_dir / 'visionpp_predictions.npy'
     trues_path = data_dir / 'visionpp_ground_truth.npy'
@@ -336,7 +362,7 @@ def load_visualisation_data():
     graph_csv_path = project_root / "B-MTGNN" / "data" / "graph.csv"
 
     if not preds_path.exists():
-        print("Error: visionpp_predictions.npy not found.")
+        print(f"Error: visionpp_predictions.npy not found at {preds_path}.")
         return None
 
     preds = np.load(preds_path)
@@ -357,10 +383,15 @@ def load_visualisation_data():
     col_names = list(col_names)
     print(f"Feature names loaded: {len(col_names)} features")
 
-    target_groups = build_graph(graph_csv_path)
+    has_solutions = any(str(c).startswith("Solution_") for c in col_names)
+    if has_solutions:
+        target_groups = build_graph(graph_csv_path)
+    else:
+        print(f"Note: dataset '{dataset}' contains no Solution_* columns. "
+              "Skipping knowledge-graph load (Overall_Widening + Fig4 overlays disabled).")
+        target_groups = {}
 
-    # Average predictions across test samples for robust global estimates
-    # preds shape: (samples, time, features) → mean over samples → (time, features)
+    # Average predictions across test samples for robust global estimates preds shape: (samples, time, features) --> mean over samples -> (time, features)
     if preds.ndim == 3:
         preds_window = preds.mean(axis=0)
         trues_forecast_period = trues.mean(axis=0)
@@ -384,22 +415,23 @@ def load_visualisation_data():
         "col_names": col_names,
         "target_groups": target_groups,
         "trues_forecast_period": trues_forecast_period,
-        "output_dir": plot_output_dir
+        "output_dir": plot_output_dir,
+        "has_solutions": has_solutions,
+        "config": config,
     }
 
 
-# ------------------- 2. Broad Analysis (Global Aggregate Plots) -------------------
+# ------------------- 2. Global Aggregate Plots -------------------
 
 def perform_broad_analysis(data):
     """
-    Generates two global aggregate plots to summarise model performance and risk landscape.
+    Generates two global aggregate plots to summarise model performance and risk.
 
     1. Global Forecast Accuracy:
        A single plot showing the Average Ground Truth vs Average Forecast across all nodes.
 
     2. Global Gap Analysis:
-       A single plot showing Average Threat vs Average Solution intensity,
-       with Risk (Red) and Safety (Green) shading.
+       A single plot showing Average Threat vs Average Solution intensity, with Risk (Red) and Safety (Green) shading.
 
     Args:
         data (dict): The data dictionary returned by `load_visualisation_data`.
@@ -510,114 +542,73 @@ def plot_validation_forecasts(data):
     out_dir = data['output_dir']
     dates = generate_date_labels_forward(datetime(2023, 1, 1), 36)
 
-# 1. Full Size Plots (Key Examples with Fallbacks for Vision Feature Selection)
+# 1. Full Size Plots
     keys_config = [
         {"name": "Password Attack", "terms": ["password"], "is_threat": True, "fb_name": "Malware", "fb_terms": ["malware"]},
         {"name": "NLP/LLM", "terms": ["nlp", "llm"], "is_threat": True, "fb_name": "Ransomware", "fb_terms": ["ransomware"]},
         {"name": "Data Backups", "terms": ["backup"], "is_threat": False, "fb_name": "Vulnerability", "fb_terms": ["vulnerab"]}
     ]
-    
+
     hist = data['history_data']
     horizon_len = preds.shape[0]
 
     for cfg in keys_config:
-        # --- Fallback & Data-Driven Matcher ---
         target_name = cfg["name"]
         is_threat = cfg["is_threat"]
-        
+
         candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["terms"])]
-        
-        # If Vision model dropped the feature, trigger the fallback
+
+        # If Vision model dropped the feature, use trigger the fallback
         if not candidates:
             target_name = cfg["fb_name"]
-            is_threat = True  # All fallbacks are top-level threats
+            is_threat = True
             candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["fb_terms"])]
-            
+
         if not candidates:
             print(f"Warning: Could not find {cfg['name']} or fallback {cfg['fb_name']}")
             continue
-            
+
         # Use the raw history to determine volume
         if is_threat:
             idx = max(candidates, key=lambda i: np.max(hist[:, i]))
         else:
             idx = min(candidates, key=lambda i: np.max(hist[:, i]))
-            
+
         fig, ax = plt.subplots(figsize=(10, 6))
-        
+
         # --- The Real Actuals & Scaled Forecast ---
-        # 1. Get EXACT 36-month ground truth from the raw chronological CSV (fixes the smoothing issue)
+        # 1. Get 36-month ground truth from the raw chronological CSV
         raw_t = hist[-horizon_len:, idx]
         raw_p = preds[:, idx]
-        
+
         max_val = np.max(raw_t)
         if max_val == 0: max_val = 1.0
-            
-        # Actuals: True raw chronological data (no artificial scaling needed)
+
+        # Actuals: True raw chronological data
         smooth_t = exponential_smoothing(raw_t)
-        
+
         # Forecast: Normalize shape, then multiply by true max volume to align them perfectly
         smooth_p = exponential_smoothing(normalise_series(raw_p) * max_val)
-        
-        # Actual = Blue (#0000fe)
+
+        # Actual = Blue
         ax.plot(dates, smooth_t, label='Actual', color='#0000fe', linewidth=2)
-        # Forecast = Purple (#7f007f)
+        # Forecast = Purple
         ax.plot(dates, smooth_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=2)
-        
-        # Confidence = Light Pink (#fee6ea)
+
+        # Confidence = Light Pink
         ax.fill_between(dates, smooth_p*0.95, smooth_p*1.05, color='#fee6ea', alpha=0.6, label='95% Confidence')
-        
+
         ax.set_title(f"Figure 3: {clean_string(target_name)}", fontsize=16)
-        
+
         # --- Explicit Formatting & Grids ---
         ax.set_xlabel('Month', fontsize=12, fontweight='bold')
         ax.set_ylabel('Trend', fontsize=12, fontweight='bold')
         ax.set_axisbelow(True)
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
-        plt.xticks(rotation=45) 
+        plt.xticks(rotation=45)
         ax.grid(True, which='major', axis='both', linestyle='-', color='lightgray', alpha=0.7)
         ax.legend(loc='upper left', fontsize=10, frameon=True, edgecolor='black')
-        
-        # Pass `fig=fig` to explicitly close it and prevent duplicate blank plots
         double_save_figure(out_dir, f'Fig3_{sanitise_filename(target_name)}.png', show_inline=True, fig=fig)
-
-    # 2. Grid View (All Nodes)
-    # DISABLED: Wrapped in block quotes to save 10+ minutes and prevent notebook bloat
-    '''
-    print("\n--- Generating Grid View (All Validation Nodes) ---")
-
-    all_valid_indices = [i for i in range(len(cols)) if np.sum(np.abs(trues[:, i])) > 0]
-    n_plots = len(all_valid_indices)
-
-    if n_plots > 0:
-        ncols = 3
-        nrows = math.ceil(n_plots / ncols)
-
-        fig, axes = plt.subplots(nrows, ncols, figsize=(15, 3 * nrows))
-        axes = axes.flatten()
-
-        for i, idx in enumerate(all_valid_indices):
-            ax = axes[i]
-            node_name = cols[idx]
-
-            norm_t = exponential_smoothing(normalise_series(trues[:, idx]))
-            norm_p = exponential_smoothing(normalise_series(preds[:, idx]))
-
-            ax.plot(dates, norm_t, label='Actual', color='black', linewidth=1.5)
-            ax.plot(dates, norm_p, label='Forecast', color='crimson', linestyle='--', linewidth=1.5)
-
-            ax.set_title(clean_string(node_name), fontsize=10)
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
-            ax.tick_params(axis='x', rotation=45, labelsize=8)
-
-            if i == 0:
-                ax.legend(loc='upper right', fontsize=8)
-
-        for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-
-        double_save_figure(out_dir, 'Fig3_Grid_View_All.png')
-    '''
 
 def generate_gap_analysis_tables(data):
     """
@@ -634,6 +625,11 @@ def generate_gap_analysis_tables(data):
     print("\n" + "=" * 50)
     print("--- GAP TABLES: Widening & Narrowing ---")
     print("=" * 50)
+
+    if not data.get('has_solutions', True) or not data['target_groups']:
+        print("Skipping gap tables: dataset has no Solution_* columns to compute "
+              "threat-vs-solution divergence against (Overall_Widening / Narrowing skipped).")
+        return
 
     preds = data['preds_window']
     cols = data['col_names']
@@ -705,11 +701,15 @@ def plot_continuous_trends(data):
     cols = data['col_names']
     groups = data['target_groups']
     out_dir = data['output_dir']
+    has_solutions = data.get('has_solutions', True)
+    config = data.get('config')
 
     min_c = min(hist.shape[1], fore.shape[1])
     full = np.concatenate([hist[:, :min_c], fore[:, :min_c]], axis=0)
 
-    dates = generate_date_labels_forward(datetime(2011, 7, 1), full.shape[0])
+    # Anchor the time axis to whatever the loaded dataset starts at. For cyber_trend this resolves to 2011-07; for csis it's 2006-04.
+    start_date = _dataset_start_date(config)
+    dates = generate_date_labels_forward(start_date, full.shape[0])
     f_start = hist.shape[0]
     f_dates = dates[f_start:]
 
@@ -717,20 +717,27 @@ def plot_continuous_trends(data):
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
 
     for k in keys:
-        # Loosened string matching to prevent silent skipping
+        # Try the graph first (cyber_trend); fall back to direct column-name match (csis).
         match = None
         for g in groups:
             if clean_string(k).lower() in clean_string(g).lower() or clean_string(g).lower() in clean_string(k).lower():
                 match = g
                 break
-                
-        if not match: 
-            print(f"WARNING: Skipping '{k}' plot! Could not find a match in graph.csv")
+
+        if not match and not has_solutions:
+            # No graph -> match against col_names directly (e.g. 'Malware-ALL').
+            for c in cols:
+                if clean_string(k).lower() in clean_string(c).lower():
+                    match = c
+                    break
+
+        if not match:
+            print(f"WARNING: Skipping '{k}' plot! Could not find a match.")
             continue
-            
+
         idx = find_col_index(match, cols)
-        if idx is None: 
-            print(f"WARNING: Skipping '{k}' plot! Found in graph but missing from node_names.npy")
+        if idx is None:
+            print(f"WARNING: Skipping '{k}' plot! Found a label but missing from col_names.")
             continue
 
         sm_full = exponential_smoothing(normalise_series(full[:, idx]))
@@ -743,7 +750,8 @@ def plot_continuous_trends(data):
         ax.fill_between(f_dates[:lim], sm_fore[:lim] - 0.05, sm_fore[:lim] + 0.05, color='mistyrose', alpha=0.5)
 
         c_idx = 0
-        for sol in groups[match]:
+        # If match came from col_names (no graph), skip solution overlays cleanly.
+        for sol in groups.get(match, []):
             s_idx = find_col_index(sol, cols)
             if s_idx is None:
                 continue
@@ -766,24 +774,27 @@ def plot_continuous_trends(data):
         double_save_figure(out_dir, f'Fig4_{sanitise_filename(k)}.png')
 
 
-def visualise_evaluation_metrics():
+def visualise_evaluation_metrics(dataset: str = "cyber_trend"):
     """
-    Loads the evaluation CSV and generates a publication-ready table image.
-    Executes the Double-Save archive logic for safe historic tracking.
+    Loads the evaluation CSV and generate table image.
+
+    Reads from Results/<dataset>/visionpp_evaluation_results.csv and writes
+    Results/<dataset>/vision_plots/Vision_Eval_Table.png.
     """
     print("\n--- Generating Evaluation Metrics Table ---")
-    
-    # FIX: Added 'pp' to the filename so it reads the correct data!
-    csv_path = current_dir / "Results" / 'visionpp_evaluation_results.csv'
-    output_dir = current_dir / "Results" / 'vision_plots'
+
+    config = CyberVisionTSppConfig()
+    config.update_from_dict({"dataset": dataset})
+    csv_path = config.results_dir / 'visionpp_evaluation_results.csv'
+    output_dir = config.results_dir / 'vision_plots'
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     if not os.path.exists(csv_path):
         print(f"Error: Evaluation CSV not found at {csv_path}")
         return
-        
+
     df = pd.read_csv(csv_path).round(3)
-    
+
     # Made figure slightly taller to fit the footnote
     fig, ax = plt.subplots(figsize=(8, len(df) * 0.5 + 1.2))
     ax.axis('tight')
@@ -815,25 +826,40 @@ def visualise_evaluation_metrics():
             cell.set_linewidth(0.5)
 
     plt.title("VisionTS++ Evaluation Metrics", fontsize=14, pad=10, fontweight='bold')
-    
+
     # Add the footnote
-    plt.figtext(0.5, 0.05, "* Overall represents the full 36-month forecast period.", 
+    plt.figtext(0.5, 0.05, "* Overall represents the full 36-month forecast period.",
                 ha="center", fontsize=10, style='italic', color='#555555')
-    
+
     # Executes the Double-Save and displays inline in the notebook
     double_save_figure(output_dir, 'Vision_Eval_Table.png')
 
-def visualise():
+def visualise(dataset: str = "cyber_trend"):
     """
     Main entry point. Executes the full VisionPP visualisation pipeline in sequence.
     """
-    data = load_visualisation_data()
+    data = load_visualisation_data(dataset=dataset)
     if data:
         perform_broad_analysis(data)
         plot_validation_forecasts(data)
         generate_gap_analysis_tables(data)
         plot_continuous_trends(data)
+        visualise_evaluation_metrics(dataset=dataset)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render VisionTS++ paper-style figures for a dataset.")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="cyber_trend",
+        choices=["cyber_trend", "csis", "mark3"],
+        help="Dataset to visualise (default: cyber_trend). Reads from Results/<dataset>/ "
+             "and writes to Results/<dataset>/vision_plots/.",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    visualise()
+    args = parse_args()
+    visualise(dataset=args.dataset)
