@@ -1,5 +1,4 @@
 """
-Train_VisionPP.py - Training script for VisionTS++ model on cyber threat data.
 
 VisionTS++ is an extended version designed for multivariate forecasting,
 using shared image space where all variables are rendered into a single image.
@@ -25,45 +24,6 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import numpy as np
 import torch
 import torch.nn as nn
-
-# =============================================================================
-# PYTORCH CHECKPOINT PATCH
-# Forces PyTorch to ignore extra quantile weights in the VisionTS checkpoint
-# =============================================================================
-if not hasattr(torch.nn.Module, '_original_load'):
-    torch.nn.Module._original_load = torch.nn.Module.load_state_dict
-
-def safe_lenient_load(self, state_dict, *args, **kwargs):
-    kwargs['strict'] = False 
-    return self._original_load(state_dict, *args, **kwargs)
-
-torch.nn.Module.load_state_dict = safe_lenient_load
-# =============================================================================
-# IN-MEMORY TYPO PATCH (VisionTS Submodule)
-# Fixes the developer's typo in RAM without modifying the file on disk
-# =============================================================================
-import inspect
-import textwrap
-import visionts.model
-
-try:
-    # 1. Read the raw source code of the broken function
-    source = inspect.getsource(visionts.model.VisionTS.forward)
-    
-    # 2. If the typo exists, fix it in the string
-    if "y = y[:, 0]" in source:
-        source = source.replace("y = y[:, 0]", "y = y_pred")
-        
-        # 3. Strip class indentation so it can be compiled cleanly
-        source = textwrap.dedent(source)
-        
-        # 4. Compile the fixed function into the module's namespace
-        exec(source, visionts.model.__dict__)
-        visionts.model.VisionTS.forward = visionts.model.__dict__['forward']
-        print("In-memory typo patch successfully applied!")
-except Exception as e:
-    print(f"Warning: Could not apply in-memory patch: {e}")
-# =============================================================================
 
 from Cyber_Trend_Image_Dataset import CyberTrendImageDataset
 from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
@@ -159,7 +119,7 @@ class TemporalAwareLoss(nn.Module):
         # Pearson correlation per feature: (B, F)
         correlation = covariance / (pred_std * target_std + self.eps)
 
-        # Loss = 1 - mean correlation (want to maximize correlation)
+        # Loss = 1 - mean correlation (want to maximise correlation)
         return 1.0 - correlation.mean()
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -172,7 +132,7 @@ class TemporalAwareLoss(nn.Module):
         target_diff = target[:, 1:, :] - target[:, :-1, :]
         temporal_loss = self.l1_loss(pred_diff, target_diff)
 
-        # Correlation loss: maximize per-feature correlation
+        # Correlation loss: maximise per-feature correlation
         corr_loss = self.pearson_correlation_loss(pred, target)
 
         return static_loss + self.temporal_weight * temporal_loss + self.corr_weight * corr_loss
@@ -195,15 +155,33 @@ class VisionTSppTrainer:
         self.optimizer = AdamW(
             filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=config.learning_rate,
+            weight_decay=config.weight_decay,
         )
         self.criterion = TemporalAwareLoss(
             temporal_weight=config.temporal_weight,
             corr_weight=config.corr_weight,
         )
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=config.epochs)
+        # Optional linear warmup before cosine annealing.
+        if config.warmup_epochs > 0 and config.warmup_epochs < config.epochs:
+            warmup = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer, start_factor=0.1, end_factor=1.0,
+                total_iters=config.warmup_epochs,
+            )
+            cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=config.epochs - config.warmup_epochs,
+            )
+            self.scheduler = torch.optim.lr_scheduler.SequentialLR(
+                self.optimizer, schedulers=[warmup, cosine], milestones=[config.warmup_epochs],
+            )
+        else:
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=config.epochs)
 
     def _build_model(self):
-        """Build the VisionTS++ model."""
+        """Build the forecasting model (VisionTS++ default, CustomViT when
+        config.use_custom_vit=True)."""
+        if getattr(self.config, "use_custom_vit", False):
+            return self._build_custom_vit()
+
         print(f"\n--- Building VisionTS++ Model ---")
         print(f"Architecture: {self.config.model_arch}")
         print(f"Fine-tune type: {self.config.finetune_type}")
@@ -235,15 +213,43 @@ class VisionTSppTrainer:
         )
         return model
 
+    def _build_custom_vit(self):
+        """Build the from-scratch / M4-pretrained Custom ViT (Path E)."""
+        print(f"\n--- Building Custom ViT ---")
+        from Models.CustomViT_Wrapper import CustomViTModel
+        vit_config = {
+            "customvit_layers": self.config.customvit_layers,
+            "customvit_heads": self.config.customvit_heads,
+            "customvit_dim": self.config.customvit_dim,
+            "customvit_patch_size": self.config.customvit_patch_size,
+            "customvit_dropout": self.config.customvit_dropout,
+            "use_aux_direction": self.config.use_aux_direction,
+        }
+        model = CustomViTModel(
+            config=vit_config,
+            context_len=self.context_len,
+            pred_len=self.pred_len,
+            n_features=self.num_features,
+            finetune_type=self.config.finetune_type,
+            load_pretrained=bool(self.config.customvit_pretrained_path),
+            pretrained_path=self.config.customvit_pretrained_path,
+        ).to(self.device)
+        return model
+
     def _prepare_data(self) -> tuple[DataLoader, DataLoader, DataLoader]:
         if self.data_dir is None:
             raise ValueError("Data directory must be specified and valid.")
 
         print(f"\n--- Loading Preprocessed Data ---")
         print(f"Data directory: {self.data_dir}")
-        train_dataset = CyberTrendImageDataset(data_dir=self.data_dir, split="train")
-        val_dataset = CyberTrendImageDataset(data_dir=self.data_dir, split="val")
-        test_dataset = CyberTrendImageDataset(data_dir=self.data_dir, split="test")
+        detrend = getattr(self.config, "detrend", False)
+        train_dataset = CyberTrendImageDataset(
+            data_dir=self.data_dir, split="train",
+            augment_sigma=getattr(self.config, "augment_sigma", 0.0),
+            detrend=detrend,
+        )
+        val_dataset = CyberTrendImageDataset(data_dir=self.data_dir, split="val", detrend=detrend)
+        test_dataset = CyberTrendImageDataset(data_dir=self.data_dir, split="test", detrend=detrend)
 
         # Get dimensions from dataset
         sample = train_dataset[0]
@@ -256,12 +262,12 @@ class VisionTSppTrainer:
 
         # Validate feature count for VisionTS++
         if self.num_features > 224:
-            print(f"WARNING: {self.num_features} features exceeds VisionTS++ limit of 224!")
+            print(f"WARNING: {self.num_features} features exceeds VisionTS++ limit of 224")
 
         # Validate datasets
         for name, ds in [("train", train_dataset), ("val", val_dataset), ("test", test_dataset)]:
             if len(ds) == 0:
-                raise ValueError(f"{name} dataset is empty!")
+                raise ValueError(f"{name} dataset is empty")
 
         # Create data loaders
         drop_last_train = len(train_dataset) >= 2 * self.config.batch_size
@@ -300,9 +306,20 @@ class VisionTSppTrainer:
             y_true = batch["target"].to(self.device)
 
             self.optimizer.zero_grad()
-            y_pred = self.model(x)
-            loss = self.criterion(y_pred, y_true)
+            # Custom ViT with aux head returns (preds, direction_logits); base path just returns preds.
+            if getattr(self.config, "use_custom_vit", False) and getattr(self.config, "use_aux_direction", False):
+                y_pred, dir_logits = self.model.forward_with_aux(x)
+                main_loss = self.criterion(y_pred, y_true)
+                slope = (y_true[:, -1, :] - y_true[:, 0, :])  # (B, V)
+                dir_target = (slope > 0).float()
+                aux_loss = nn.functional.binary_cross_entropy_with_logits(dir_logits, dir_target)
+                loss = main_loss + self.config.direction_loss_weight * aux_loss
+            else:
+                y_pred = self.model(x)
+                loss = self.criterion(y_pred, y_true)
             loss.backward()
+            if self.config.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
             self.optimizer.step()
 
             total_loss += loss.item()
@@ -343,11 +360,25 @@ class VisionTSppTrainer:
         all_preds = []
         all_targets = []
 
+        detrend = getattr(self.config, "detrend", False)
+        pred_len = self.pred_len
         for batch in tqdm(self.test_loader, desc="Testing"):
             x = batch["input"].to(self.device)
             y_true = batch["target"].to(self.device)
 
             y_pred = self.model(x)
+
+            # If detrending is on, the model trained on residuals; reconstruct predictions and ground truth in original space for honest metrics.
+            if detrend and "trend_slope" in batch:
+                slope = batch["trend_slope"].to(self.device).unsqueeze(1)        # (B, 1, V)
+                intercept = batch["trend_intercept"].to(self.device).unsqueeze(1)  # (B, 1, V)
+                t_pred = torch.arange(
+                    self.context_len, self.context_len + pred_len,
+                    device=self.device, dtype=slope.dtype,
+                ).view(1, -1, 1)  # (1, pred_len, 1)
+                pred_trend = slope * t_pred + intercept   # (B, pred_len, V)
+                y_pred = y_pred + pred_trend
+                y_true = y_true + pred_trend
 
             all_preds.append(y_pred.cpu())
             all_targets.append(y_true.cpu())
@@ -464,6 +495,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--data_dir", type=str, default=None, help="Path to preprocessed data directory")
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="cyber_trend",
+        choices=["cyber_trend", "csis", "mark3"],
+        help="Source dataset (default: cyber_trend). When --data_dir is not given, data is loaded from Processed_Data/visionpp/<dataset>/.",
+    )
 
     # Training parameters
     parser.add_argument("--epochs", type=int, help="Number of training epochs")
@@ -481,16 +519,61 @@ def parse_args() -> argparse.Namespace:
     )
 
     # VisionTS++ specific
-    parser.add_argument("--quantile", action="store_true", help="Enable quantile predictions")
+    parser.add_argument("--quantile", action=argparse.BooleanOptionalAction, default=None,
+                        help="Enable quantile predictions (default from config: True)")
     parser.add_argument("--no_color", action="store_true", help="Disable color encoding")
-    parser.add_argument("--norm_const", type=float, help="Normalization constant")
-    parser.add_argument("--align_const", type=float, help="Alignment constant")
 
     # System parameters
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     parser.add_argument("--num_workers", type=int, help="Number of data loader workers")
-    
-    # Update: Master Loop Argument
+
+    # Loss weights (TemporalAwareLoss)
+    parser.add_argument("--temporal_weight", type=float,
+                        help="Weight for temporal-difference term (config default: 0.3)")
+    parser.add_argument("--corr_weight", type=float,
+                        help="Weight for Pearson-correlation term (config default: 1.0)")
+
+    # Optimiser / regularisation
+    parser.add_argument("--weight_decay", type=float,
+                        help="AdamW weight decay (config default: 0.0)")
+    parser.add_argument("--grad_clip", type=float,
+                        help="Max grad norm for clip_grad_norm_; 0 disables (config default: 0.0)")
+    parser.add_argument("--warmup_epochs", type=int,
+                        help="Linear LR warmup epochs before cosine (config default: 0)")
+
+    # VisionTS++
+    parser.add_argument("--periodicity", type=int,
+                        help="Temporal periodicity for image-row folding (config default: 12)")
+    parser.add_argument("--norm_const", type=float,
+                        help="Normalisation divisor in image-space (config default: 0.4)")
+    parser.add_argument("--align_const", type=float,
+                        help="Input/output patch-ratio in image-space (config default: 0.4)")
+    parser.add_argument("--interpolation", type=str,
+                        choices=["bilinear", "nearest", "bicubic"],
+                        help="Image-resize interpolation (config default: bilinear)")
+    parser.add_argument("--num_patch_input", type=int,
+                        help="Explicit override of the auto-computed input-patch count. If unset, "
+                             "VisionTS++ derives it from align_const.")
+    parser.add_argument("--augment_sigma", type=float,
+                        help="Training-time Gaussian jitter std on input (regularisation). "
+                             "0 = no jitter (config default).")
+    parser.add_argument("--detrend", action=argparse.BooleanOptionalAction, default=None,
+                        help="Fit per-window per-feature linear trend on context, model trains "
+                             "on residuals, eval reconstructs in original space. Pass --no-detrend "
+                             "to force off; unset uses per-dataset default (mark3: on).")
+    # Custom ViT
+    parser.add_argument("--use_custom_vit", action="store_true",
+                        help="Use the from-scratch CustomViT instead of VisionTS++.")
+    parser.add_argument("--customvit_layers", type=int, help="CustomViT n_layers (default from config)")
+    parser.add_argument("--customvit_heads", type=int, help="CustomViT n_heads (default from config)")
+    parser.add_argument("--customvit_dim", type=int, help="CustomViT embed_dim (default from config)")
+    parser.add_argument("--customvit_pretrained_path", type=str,
+                        help="Path to M4-pretrained CustomViT weights to load before fine-tuning.")
+    parser.add_argument("--use_aux_direction", action="store_true",
+                        help="Enable auxiliary direction-prediction loss (CustomViT only).")
+    parser.add_argument("--direction_loss_weight", type=float,
+                        help="Weight for aux direction loss (default 0.1 from config).")
+
     parser.add_argument("--num_runs", type=int, default=1, help="Number of times to restart training for best-of-N.")
 
     return parser.parse_args()
@@ -506,19 +589,18 @@ def main():
     # Handle special args
     if args.no_color:
         config.color = False
-    if args.quantile:
-        config.quantile = True
+    if args.quantile is not None:
+        config.quantile = args.quantile
 
     # Set random seed
     set_random_seed(config.seed)
     print(f"Random seed: {config.seed}")
     # best of run(s)
-    print(f"Master Loop: Running best of {args.num_runs} initialisation(s)")
+    print(f"Main Loop: Running best of {args.num_runs} initialisation(s)")
 
     # Resolve data directory
     data_dir = args.data_dir
     if data_dir is None:
-        # Default to visionpp processed data
         data_dir = str(config.output_dir)
     elif not Path(data_dir).is_absolute():
         data_dir = str(SCRIPT_DIR / data_dir)
@@ -526,60 +608,60 @@ def main():
     if config.mode == "train":
         global_best_val_loss = float('inf')
         current_best_model_path = None
-        
-        # --- MASTER TRAINING LOOP ---
+
+        # --- MAIN TRAINING LOOP ---
         for run in range(args.num_runs):
             if args.num_runs > 1:
-                print(f"\n{'='*50}\nStarting Initialization Run {run + 1}/{args.num_runs}\n{'='*50}")
-                
-            # Must re-instantiate trainer inside the loop for a fresh start
+                print(f"\n{'='*50}\nStarting Initialisation Run {run + 1}/{args.num_runs}\n{'='*50}")
+
             trainer = VisionTSppTrainer(config, data_dir=data_dir)
             trainer.train()
-            
-            # Extract the best loss from Brayden's internal temporary file
+
+            # Get best loss
             checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
             if checkpoint_path.exists():
                 checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
                 run_best_val_loss = checkpoint.get("val_loss", float('inf'))
-                
-                # --- GLOBAL SAVE LOGIC ---
+
+                # --- GLOBAL SAVE ---
                 if run_best_val_loss < global_best_val_loss:
                     global_best_val_loss = run_best_val_loss
                     timestamp = datetime.now().strftime("%b%d")
-                    
+
                     if args.num_runs > 1:
-                        new_name = f"best_{args.num_runs}_model_visionpp_{timestamp}_{global_best_val_loss:.4f}.pth"
+                        new_name = f"best_{args.num_runs}_model_visionpp_{config.dataset}_{timestamp}_{global_best_val_loss:.4f}.pth"
                     else:
-                        new_name = "best_model_visionpp.pth"
-                        
+                        new_name = f"best_model_visionpp_{config.dataset}.pth"
+
                     new_save_path = Path(SCRIPT_DIR) / "Models" / new_name
                     new_save_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    # Delete the older file from this master run to prevent clutter
+
+                    # Cleanup the older file from this main run
                     if current_best_model_path and current_best_model_path != new_save_path and current_best_model_path.exists():
                         current_best_model_path.unlink()
-                        
+
                     shutil.copy(checkpoint_path, new_save_path)
                     current_best_model_path = new_save_path
-                    print(f"\n🌟 New global best found! Saved to: {new_save_path}")
+                    print(f"\nNew global best found! Saved to: {new_save_path}")
 
-        # After the master loop finishes, load the ultimate global best model for testing
+        # After the main loop finishes, load the best model for testing
         if current_best_model_path and current_best_model_path.exists():
             final_checkpoint = torch.load(current_best_model_path, map_location=trainer.device)
             trainer.model.load_state_dict(final_checkpoint["model_state_dict"])
             print(f"\n{'='*50}\nLoaded ULTIMATE global model for testing from {current_best_model_path}\n{'='*50}")
-            
+
             # --- Bridge to Evaluation Script ---
-            # 1. Overwrite temporary file with the true global best
+            # 1. Overwrite temporary file with best
             shutil.copy(current_best_model_path, Path(config.checkpoint_dir) / "visiontspp_best.pt")
-            
-            # 2. Save a standard named file in the Models folder for consistency
-            standard_save_path = Path(SCRIPT_DIR) / "Models" / "best_model_visionpp.pth"
-            shutil.copy(current_best_model_path, standard_save_path)
+
+            # 2. Save
+            standard_save_path = Path(SCRIPT_DIR) / "Models" / f"best_model_visionpp_{config.dataset}.pth"
+            if current_best_model_path.resolve() != standard_save_path.resolve():
+                shutil.copy(current_best_model_path, standard_save_path)
             print(f"--- Copied to {standard_save_path} for Evaluation Pipeline ---")
-            
+
         trainer.test()
-        
+
     elif config.mode == "test":
         trainer = VisionTSppTrainer(config, data_dir=data_dir)
         checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
@@ -588,7 +670,7 @@ def main():
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
             print(f"Loaded checkpoint from {checkpoint_path}")
         trainer.test()
-        
+
     elif config.mode == "zero_shot":
         trainer = VisionTSppTrainer(config, data_dir=data_dir)
         trainer.zero_shot_eval()
