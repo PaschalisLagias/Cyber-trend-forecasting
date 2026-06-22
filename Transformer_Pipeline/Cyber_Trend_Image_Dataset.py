@@ -27,21 +27,30 @@ class CyberTrendImageDataset(Dataset):
         data_dir: Optional[str] = None,
         split: str = "train",
         transform: Optional[Callable] = None,
+        augment_sigma: float = 0.0,
+        detrend: bool = False,
     ) -> None:
         """
         Initialize the dataset.
 
         Args:
-            data_dir: Path to directory containing preprocessed .npz files.
-                      If provided, loads from preprocessed files.
+            data_dir: Path to directory containing preprocessed .npz  files. If provided, loads from preprocessed files.
+
             split: Which split to load ('train', 'val', or 'test').
                    Only used when data_dir is provided.
+
             transform: Optional transform to apply to samples.
+
+            augment_sigma: Std-dev of additive Gaussian jitter applied to the input tensor at training time. 0 = no jitter. Only applied when split == "train" (val/test stay deterministic).
+
+            detrend: When True, fit a per-window per-feature linear trend on the context portion ONLY, subtract it from both context AND target, and return the trend coefficients in each sample so downstream code can reconstruct the prediction in original space. The model trains on residuals.
         """
         super().__init__()
         self.transform = transform
         self.data_dir = data_dir
         self.split = split
+        self.augment_sigma = float(augment_sigma)
+        self.detrend = bool(detrend)
 
         if data_dir is not None:
             self._init_from_preprocessed(data_dir, split)
@@ -76,6 +85,30 @@ class CyberTrendImageDataset(Dataset):
             print(f"  X shape: {self.X.shape} (samples, context_len, nvars)")
             print(f"  y shape: {self.y.shape} (samples, pred_len, nvars)")
 
+            # Detrending: fit per-window per-feature linear trend on the context
+            # window only, subtract it from both X (context) and y (target).
+            # Save the per-window per-feature trend coefficients for reconstruction.
+            if self.detrend:
+                X_arr = np.asarray(self.X, dtype=np.float32)
+                y_arr = np.asarray(self.y, dtype=np.float32)
+                ctx_t = np.arange(self.context_window_size, dtype=np.float32)
+                # Vectorised per-feature linear fit. polyfit on each (n_samples * n_features) column.
+                # Reshape to (context_len, n_samples * n_features) -> polyfit gives (2, n_samples * n_features)
+                X_flat = X_arr.transpose(1, 0, 2).reshape(self.context_window_size, -1)
+                coeffs = np.polyfit(ctx_t, X_flat, deg=1)  # (2, n_samples * n_features) -> rows: [slope, intercept]
+                slopes = coeffs[0].reshape(self.num_samples, self.num_features)
+                intercepts = coeffs[1].reshape(self.num_samples, self.num_features)
+                # Build trend tensors using broadcasting: (samples, time, features)
+                ctx_trend = slopes[:, None, :] * ctx_t[None, :, None] + intercepts[:, None, :]
+                pred_t = np.arange(self.context_window_size,
+                                   self.context_window_size + self.pred_window_size, dtype=np.float32)
+                pred_trend = slopes[:, None, :] * pred_t[None, :, None] + intercepts[:, None, :]
+                self.X = (X_arr - ctx_trend).astype(np.float32)
+                self.y = (y_arr - pred_trend).astype(np.float32)
+                self.trend_slope = slopes.astype(np.float32)
+                self.trend_intercept = intercepts.astype(np.float32)
+                print(f"  Detrend ON: per-window linear fit on context, residual std={self.X.std():.4f}")
+
         except KeyError as e:
             raise KeyError(f"The .npz file at {data_path} is missing key: {e}. Expected 'x' and 'y' keys.")
 
@@ -96,7 +129,17 @@ class CyberTrendImageDataset(Dataset):
         x = torch.from_numpy(self.X[idx]).float()
         y = torch.from_numpy(self.y[idx]).float()
 
+        # Training-time Gaussian jitter on input (regularisation).
+        if self.split == "train" and self.augment_sigma > 0.0:
+            x = x + torch.randn_like(x) * self.augment_sigma
+
         sample = {"input": x, "target": y}
+
+        if self.detrend:
+            # Carry per-window trend coefficients so the eval / test loop
+            # can reconstruct predictions in original (non-residual) space.
+            sample["trend_slope"] = torch.from_numpy(self.trend_slope[idx]).float()
+            sample["trend_intercept"] = torch.from_numpy(self.trend_intercept[idx]).float()
 
         if self.transform:
             sample = self.transform(sample)
@@ -105,11 +148,10 @@ class CyberTrendImageDataset(Dataset):
 
     def get_static_features(self) -> dict:
         """
-        Load and return static features (scaler, metadata) for model initialization.
+        Load and return static features (scaler, metadata) for model initialisation.
 
         This method provides consistency with the Graph pipeline's Dataset interface.
-        For VisionTS, the scaler is saved for reference but NOT applied to data
-        (VisionTS handles normalisation internally).
+        For VisionTS, the scaler is saved for reference but NOT applied to data.
 
         Returns:
             dict containing:
