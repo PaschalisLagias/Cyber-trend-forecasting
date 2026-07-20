@@ -28,6 +28,14 @@ DATA_PREP_SCRIPT = DATA_PREP_DIR / "data_preparation.py"
 DATA_PREP_README = DATA_PREP_DIR / "README.MD"
 DATA_PREP_REQS = DATA_PREP_DIR / "requirements.txt"
 
+HACKMAGEDDON_DIR = DATA_PREP_DIR / "Hackmageddon_Attacks"
+HACK_NOI_MONTHLY_V2 = HACKMAGEDDON_DIR / "NoI_monthly_v2.csv"
+
+V2_1_DATA_CSV = DATA_PREP_DIR / "Cyber_Trend_Forecasting_v2_1.csv"
+TRAIN_HACK_CSV = DATA_PREP_DIR / "train_hackmageddon_2011_2023.csv"
+TRAIN_V2_1_CSV = DATA_PREP_DIR / "train_v2_1_2011_2023.csv"
+STRATIFIED_VALIDATION_CSV = DATA_PREP_DIR / "stratified_mean_2024_validation.csv"
+
 # --- B-MTGNN Directory & Files ---
 BMTGNN_DIR = ROOT_DIR / "B-MTGNN"
 BMTGNN_DATA_DIR = BMTGNN_DIR / "data"
@@ -37,7 +45,7 @@ BMTGNN_DATA_TXT = BMTGNN_DATA_DIR / "data.txt"
 BMTGNN_GRAPH_CSV = BMTGNN_DATA_DIR / "graph.csv"
 
 BMTGNN_SM_DATA_CSV = BMTGNN_DATA_DIR / "sm_data.csv"
-BMTGNN_SM_DATA_TXT = BMTGNN_DATA_DIR / "sm_data.txt"
+# BMTGNN_SM_DATA_TXT = BMTGNN_DATA_DIR / "sm_data.txt"
 BMTGNN_SM_DATA_G_CSV = BMTGNN_DATA_DIR / "sm_data_g.csv"
 BMTGNN_SM_DATA_G_TXT = BMTGNN_DATA_DIR / "sm_data_g.txt"
 
@@ -62,3 +70,5 @@ VISION_GLOBAL_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Global"
 VISION_GAPS_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Gaps"
 VISION_FORECAST_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Forecast"
 VISION_OUTLOOK_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Outlook"
+
+BMTGNN_SM_DATA_TXT = PROCESSED_DATA_DIR / 'Legacy_Archives' / 'mark2_unsmoothed.txt'
