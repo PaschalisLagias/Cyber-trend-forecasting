@@ -36,6 +36,9 @@ TRAIN_HACK_CSV = DATA_PREP_DIR / "train_hackmageddon_2011_2023.csv"
 TRAIN_V2_1_CSV = DATA_PREP_DIR / "train_v2_1_2011_2023.csv"
 STRATIFIED_VALIDATION_CSV = DATA_PREP_DIR / "stratified_mean_2024_validation.csv"
 
+# Mark 3 SARIMAX Dataset
+V2_2_SARIMAX_CSV = DATA_PREP_DIR / "Cyber_Trend_Forecasting_All_v2_2_sarimax.csv"
+
 # --- B-MTGNN Directory & Files ---
 BMTGNN_DIR = ROOT_DIR / "B-MTGNN"
 BMTGNN_DATA_DIR = BMTGNN_DIR / "data"
@@ -45,7 +48,6 @@ BMTGNN_DATA_TXT = BMTGNN_DATA_DIR / "data.txt"
 BMTGNN_GRAPH_CSV = BMTGNN_DATA_DIR / "graph.csv"
 
 BMTGNN_SM_DATA_CSV = BMTGNN_DATA_DIR / "sm_data.csv"
-# BMTGNN_SM_DATA_TXT = BMTGNN_DATA_DIR / "sm_data.txt"
 BMTGNN_SM_DATA_G_CSV = BMTGNN_DATA_DIR / "sm_data_g.csv"
 BMTGNN_SM_DATA_G_TXT = BMTGNN_DATA_DIR / "sm_data_g.txt"
 
@@ -53,11 +55,24 @@ BMTGNN_SM_DATA_G_TXT = BMTGNN_DATA_DIR / "sm_data_g.txt"
 PROCESSED_DATA_DIR = ROOT_DIR / "Processed_Data"
 COMPARISON_PLOTS_DIR = PROCESSED_DATA_DIR / "Comparison_Plots"
 
+# B-MTGNN Processed Data Outputs & Archives
+PROCESSED_BMTGNN_DIR = PROCESSED_DATA_DIR / "B-MTGNN"
+BMTGNN_ARCHIVE_DIR = PROCESSED_BMTGNN_DIR / "Archive"
+BMTGNN_WORKING_TXT = PROCESSED_BMTGNN_DIR / "sm_data.txt"
+
+# VisionTS Processed Data Outputs & Archives
+PROCESSED_VISION_DIR = PROCESSED_DATA_DIR / "VisionTS"
+VISION_ARCHIVE_DIR = PROCESSED_VISION_DIR / "Archive"
+VISION_WORKING_CSV = PROCESSED_VISION_DIR / "Mark3_Clipped_Data.csv"
+
 # Output paths dynamically inject the tag
-BMTGNN_PREDICTIONS = PROCESSED_DATA_DIR / "B-MTGNN" / f"predictions{TAG}.npy" 
-BMTGNN_CONFIDENCE = PROCESSED_DATA_DIR / "B-MTGNN" / f"confidence{TAG}.npy" 
-BMTGNN_HISTORY = PROCESSED_DATA_DIR / "B-MTGNN" / f"history_data{TAG}.npy" 
-BMTGNN_NAMES = PROCESSED_DATA_DIR / "B-MTGNN" / f"node_names{TAG}.npy"
+BMTGNN_PREDICTIONS = PROCESSED_BMTGNN_DIR / f"predictions{TAG}.npy" 
+BMTGNN_CONFIDENCE = PROCESSED_BMTGNN_DIR / f"confidence{TAG}.npy" 
+BMTGNN_HISTORY = PROCESSED_BMTGNN_DIR / f"history_data{TAG}.npy" 
+BMTGNN_NAMES = PROCESSED_BMTGNN_DIR / f"node_names{TAG}.npy"
+
+# Legacy Archive Reference
+LEGACY_MARK2_TXT = PROCESSED_DATA_DIR / 'Legacy_Archives' / 'mark2_unsmoothed.txt'
 
 # B-MTGNN Comparison Subdirectories
 BMTGNN_GLOBAL_DIR = COMPARISON_PLOTS_DIR / "BMTGNN_Global"
@@ -70,5 +85,3 @@ VISION_GLOBAL_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Global"
 VISION_GAPS_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Gaps"
 VISION_FORECAST_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Forecast"
 VISION_OUTLOOK_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Outlook"
-
-BMTGNN_SM_DATA_TXT = PROCESSED_DATA_DIR / 'Legacy_Archives' / 'mark2_unsmoothed.txt'
