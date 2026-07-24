@@ -32,7 +32,7 @@ from Config.Paths import *
 from util import DataLoaderS
 
 # File configurations
-DATA_FILE = BMTGNN_SM_DATA_TXT 
+DATA_FILE = BMTGNN_WORKING_TXT 
 MODEL_FILE = B_MTGNN_DIR / 'model' / 'Bayesian' / 'o_model.pt'
 OUTPUT_CSV = CURRENT_DIR / 'Results' / 'graph_evaluation_results.csv'
 
