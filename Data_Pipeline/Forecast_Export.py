@@ -22,6 +22,7 @@ import sys
 import csv
 import torch
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from collections import defaultdict
 import sys
@@ -39,15 +40,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from Config.Paths import *    
 
 # Inherit paths directly from Config
-DATA_FILE = BMTGNN_SM_DATA_TXT 
+DATA_FILE = BMTGNN_WORKING_TXT 
 MODEL_FILE = BMTGNN_DIR / 'model' / 'Bayesian' / 'o_model.pt'
 MAPPING_FILE = ROOT_DIR / 'Data_Pipeline' / 'column_mapping.csv'
-
-# Output paths dynamically inject the tag from Paths.py
-PREDS_SAVE_PATH = BMTGNN_PREDICTIONS
-CONF_SAVE_PATH = BMTGNN_CONFIDENCE
-HIST_SAVE_PATH = BMTGNN_HISTORY
-NAMES_SAVE_PATH = BMTGNN_NAMES
+LEGACY_HEADER_FILE = BMTGNN_SM_DATA_G_CSV
 
 # # Legacy paths required for structural mapping (Updated to point to Zaid's original file)
 # # --- Mark 2 Legacy Path (Maintained for Reproducibility) ---
@@ -59,32 +55,34 @@ if str(B_MTGNN_DIR) not in sys.path:
     sys.path.append(str(B_MTGNN_DIR))
     print(f"Injected {B_MTGNN_DIR} into system path so PyTorch can find 'net.py'")
 
-def create_columns(file_name, is_mark3=True):
+def create_columns(legacy_header_path, mapping_csv_path):
     """
-    Extracts column names and index mapping.
-    Supports both Mark 2 legacy format and Mark 3 column mapping.
+    Constructs ordered column names for Mark 3 dataset by translating
+    legacy header ordering through the column mapping table.
     """
+    
+    # 1. Read legacy header to establish exact column order
+    legacy_df = pd.read_csv(legacy_header_path, nrows=0)
+    legacy_cols = [c for c in legacy_df.columns if 'date' not in c.lower() and 'month' not in c.lower()]
+    
+    # 2. Read column mapping dictionary
+    mapping_df = pd.read_csv(mapping_csv_path)
+    mapping_dict = dict(zip(mapping_df['Legacy_Node_Name'], mapping_df['New_Dataset_Column']))
+    mapping_dict["Solution_MACHINE LEARNING_Mentions"] = "Solution_ML/DL_Papers"
+    
+    # 3. Construct ordered list of new column names
     col_name = []
     col_index = {}
-    
-    with open(file_name, 'r') as f:
-        reader = csv.reader(f)
+    for old_col in legacy_cols:
+        new_col = mapping_dict.get(old_col)
+        if not new_col:
+            raise KeyError(f"No mapping found for legacy node '{old_col}'")
+        col_name.append(new_col)
         
-        if not is_mark3:
-            # --- Mark 2 Legacy Logic ---
-            col_name = [c for c in next(reader)]
-            if 'Date' in col_name[0]:
-                col_name = col_name[1:]
-        else:
-            # --- Mark 3 Mapping Logic ---
-            next(reader) # Skip the header row
-            for row in reader:
-                col_name.append(row[1])
-                
-        for i, c in enumerate(col_name):
-            col_index[c] = i
-            
-        return col_name, col_index
+    for i, c in enumerate(col_name):
+        col_index[c] = i
+        
+    return col_name, col_index
 
 def extract_forecast():
     """Executes the Bayesian forecast and exports the NumPy arrays."""
@@ -108,8 +106,8 @@ def extract_forecast():
         print(f"Failed to load sm_data.txt: {e}")
         sys.exit(1)
 
-  # For Mark 3 Execution:
-    col_names, _ = create_columns(MAPPING_FILE, is_mark3=True)
+    # For Mark 3 Execution:
+    col_names, _ = create_columns(LEGACY_HEADER_FILE, MAPPING_FILE)
     
     # NOTE: To revert to Mark 2, simply change the above line to:
     # col_names, _ = create_columns(LEGACY_NODES_FILE, is_mark3=False)
@@ -143,7 +141,7 @@ def extract_forecast():
     model.to(device)
 
     # 6. Bayesian Estimation (Monte Carlo Runs)
-    num_runs = 10
+    num_runs = 30
     outputs = []
     print(f"Executing {num_runs} Monte Carlo inference passes...")
     
@@ -180,17 +178,17 @@ def extract_forecast():
     hist_array = dat_unscaled
     names_array = np.array(col_names)
 
-    # 10. Save to Processed Data
+# 10. Save to Processed Data
     print("\n--- Saving Arrays for Phase 5 ---")
-    np.save(PREDS_SAVE_PATH, preds_array)
-    np.save(CONF_SAVE_PATH, conf_array)
-    np.save(HIST_SAVE_PATH, hist_array)
-    np.save(NAMES_SAVE_PATH, names_array)
+    np.save(BMTGNN_PREDICTIONS, preds_array)
+    np.save(BMTGNN_CONFIDENCE, conf_array)
+    np.save(BMTGNN_HISTORY, hist_array)
+    np.save(BMTGNN_NAMES, names_array)
 
-    print(f"Saved: {PREDS_SAVE_PATH.name} Shape: {preds_array.shape}")
-    print(f"Saved: {CONF_SAVE_PATH.name} Shape: {conf_array.shape}")
-    print(f"Saved: {HIST_SAVE_PATH.name} Shape: {hist_array.shape}")
-    print(f"Saved: {NAMES_SAVE_PATH.name} Count: {len(names_array)}")
+    print(f"Saved: {BMTGNN_PREDICTIONS.name} Shape: {preds_array.shape}")
+    print(f"Saved: {BMTGNN_CONFIDENCE.name} Shape: {conf_array.shape}")
+    print(f"Saved: {BMTGNN_HISTORY.name} Shape: {hist_array.shape}")
+    print(f"Saved: {BMTGNN_NAMES.name} Count: {len(names_array)}")
     print("=" * 60)
     print("SUCCESS: Phase 4 complete. Data is ready for final visualisation.")
 
