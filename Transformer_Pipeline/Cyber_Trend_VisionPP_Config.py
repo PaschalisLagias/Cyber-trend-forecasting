@@ -31,6 +31,36 @@ DATASETS = {
         "subdir": "v2_1",
         "defaults": {},
     },
+    "v2_2": {
+        "raw_relpath": "Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+        "subdir": "v2_2",
+        "defaults": {
+            "periodicity": 1,
+            "mse_weight": 1.0,
+            "chunk_size": 6,
+            "num_patch_input": 7,
+        },
+    },
+    "v2_2_full": {
+        "raw_relpath": "Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+        "subdir": "v2_2_full",
+        "defaults": {
+            "periodicity": 1,
+            "mse_weight": 1.0,
+            "chunk_size": 6,
+            "num_patch_input": 7,
+        },
+    },
+    "v2_2_adaptive": {
+        "raw_relpath": "Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+        "subdir": "v2_2_adaptive",
+        "defaults": {
+            "periodicity": 1,
+            "mse_weight": 1.0,
+            "chunk_size": 6,
+            "num_patch_input": 7,
+        },
+    },
 }
 
 
@@ -45,6 +75,8 @@ class CyberVisionTSppConfig:
         "norm_const": 0.4,
         "detrend": False,
         "mse_weight": 0.0,
+        "chunk_size": None,
+        "num_patch_input": None,
     })
 
     script_dir: Path = field(init=False)
@@ -72,12 +104,18 @@ class CyberVisionTSppConfig:
     mode: str = "train"
     finetune_type: str = "ln"
     load_pretrained: bool = True
+    # Chunked rendering: max variables per image (None = all in one image).
+    chunk_size: Optional[int] = None
 
     # Training parameters
     epochs: int = 100
     batch_size: int = 32
     learning_rate: float = 1e-4
     patience: int = 50
+    # Metric used for early stopping / best-checkpoint / best-of-N selection.
+    # "val_loss" (the L1+temporal+corr composite; historical behaviour) or
+    # "val_rse". Default keeps behaviour identical to all past runs.
+    select_metric: str = "val_loss"
     temporal_weight: float = 0.3  # Weight for temporal difference loss component
     corr_weight: float = 1.0  # Weight for correlation loss component
     mse_weight: float = 0.0  # Weight for squared-error loss component (directly targets RSE)
@@ -142,21 +180,21 @@ class CyberVisionTSppConfig:
         self.ckpt_dir = self.output_dir / "ckpt"
         self.results_dir = self.script_dir / "Transformer_Pipeline" / "Results" / subdir
 
+    _MISSING = object()
     def _apply_dataset_defaults(self, skip_keys=None) -> None:
         skip_keys = set(skip_keys or ())
         info = DATASETS.get(self.dataset, {})
         for key, dataset_default in info.get("defaults", {}).items():
             if key in skip_keys:
                 continue
-            module_default = self._MODULE_DEFAULTS.get(key)
-            if module_default is None:
+            module_default = self._MODULE_DEFAULTS.get(key, self._MISSING)
+            if module_default is self._MISSING:
                 continue
             if getattr(self, key) == module_default:
                 setattr(self, key, dataset_default)
 
     def update_from_dict(self, overrides: dict) -> None:
-        """Update config attributes from a dictionary of overrides.
-        """
+        """Update config attributes from a dictionary of overrides."""
         dataset_changed = False
         provided_keys: set = set()
         for key, value in overrides.items():

@@ -7,6 +7,7 @@ using shared image space where all variables are rendered into a single image.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 import time
@@ -151,7 +152,16 @@ class VisionTSppTrainer:
     def __init__(self, config: CyberVisionTSppConfig, data_dir: Optional[str] = None) -> None:
         self.config = config
         self.data_dir = data_dir
-        self.device = torch.device("cuda" if torch.cuda.is_available() and config.use_gpu else "cpu")
+        override = os.environ.get("VISIONPP_DEVICE")  # escape hatch: cuda|mps|cpu
+        if override:
+            self.device = torch.device(override)
+        elif torch.cuda.is_available() and config.use_gpu:
+            self.device = torch.device("cuda")
+        elif torch.backends.mps.is_available() and config.use_gpu:
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
+        print(f"Using device: {self.device}")
 
         # Load data first to get dimensions
         self.train_loader, self.val_loader, self.test_loader = self._prepare_data()
@@ -211,6 +221,7 @@ class VisionTSppTrainer:
             "clip_input": self.config.clip_input,
             "complete_no_clip": self.config.complete_no_clip,
             "num_patch_input": self.config.num_patch_input,
+            "chunk_size": self.config.chunk_size,
         }
         model = create_visiontspp_model(
             config=model_config,
@@ -457,9 +468,11 @@ class VisionTSppTrainer:
                 f"RSE: {val_rse:.4f} | RAE: {val_rae:.4f}"
             )
 
-            # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            # Early stopping / best checkpoint
+            select_metric = getattr(self.config, "select_metric", "val_loss")
+            current_val = val_rse if select_metric == "val_rse" else val_loss
+            if current_val < best_val_loss:
+                best_val_loss = current_val
                 patience_counter = 0
 
                 checkpoint_path = Path(self.config.checkpoint_dir) / "visiontspp_best.pt"
@@ -507,11 +520,14 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=str,
         default="cyber_trend",
-        choices=["cyber_trend", "csis", "mark3", "v2_1"],
+        choices=["cyber_trend", "csis", "mark3", "v2_1", "v2_1_single", "v2_2", "v2_2_full", "v2_2_adaptive"],
         help="Source dataset (default: cyber_trend). When --data_dir is not given, data is loaded from Processed_Data/visionpp/<dataset>/.",
     )
 
     # Training parameters
+    parser.add_argument("--select_metric", type=str, default=None,
+                        choices=["val_loss", "val_rse"],
+                        help="Metric for early stopping / best-checkpoint / best-of-N selection")
     parser.add_argument("--epochs", type=int, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, help="Batch size for training")
     parser.add_argument("--learning_rate", type=float, help="Learning rate")
@@ -561,6 +577,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interpolation", type=str,
                         choices=["bilinear", "nearest", "bicubic"],
                         help="Image-resize interpolation (config default: bilinear)")
+    parser.add_argument("--chunk_size", type=int,
+                        help="Max variables rendered per image; chunks are forecast.")
     parser.add_argument("--num_patch_input", type=int,
                         help="Explicit override of the auto-computed input-patch count. If unset, "
                              "VisionTS++ derives it from align_const.")
@@ -631,7 +649,10 @@ def main():
             checkpoint_path = Path(config.checkpoint_dir) / "visiontspp_best.pt"
             if checkpoint_path.exists():
                 checkpoint = torch.load(checkpoint_path, map_location=trainer.device)
-                run_best_val_loss = checkpoint.get("val_loss", float('inf'))
+                run_best_val_loss = checkpoint.get(
+                    getattr(config, "select_metric", "val_loss"),
+                    checkpoint.get("val_loss", float('inf')),
+                )
 
                 # --- GLOBAL SAVE ---
                 if run_best_val_loss < global_best_val_loss:

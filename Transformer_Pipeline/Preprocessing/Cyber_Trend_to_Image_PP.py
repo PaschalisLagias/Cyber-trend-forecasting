@@ -22,6 +22,9 @@ DATASET_LAYOUT = {
     "csis":         {"vision_subdir": "csis", "visionpp_subdir": "csis"},
     "mark3":        {"vision_subdir": "mark3", "visionpp_subdir": "mark3"},
     "v2_1":         {"vision_subdir": "v2_1", "visionpp_subdir": "v2_1"},
+    "v2_2":         {"vision_subdir": "v2_2", "visionpp_subdir": "v2_2"},
+    "v2_2_full":    {"vision_subdir": "v2_2_full", "visionpp_subdir": "v2_2_full"},
+    "v2_2_adaptive": {"vision_subdir": "v2_2_adaptive", "visionpp_subdir": "v2_2_adaptive"},
 }
 
 

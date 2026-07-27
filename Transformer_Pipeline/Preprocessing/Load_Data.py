@@ -25,6 +25,27 @@ DATASET_SCHEMAS = {
         "date_format": "%b-%y",       # e.g. "Jul-11"
         "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_1.csv",
     },
+    "v2_2": {
+        "date_column": "Date",
+        "date_format": "%b-%y",       # e.g. "Jul-11"
+        # v2_1 non-attack columns + Hackmageddon attack counts (real through
+        # Jan-25, SARIMAX-imputed Feb-Dec 25; see
+        # Data_Preparation/Hackmageddon_Attacks/sarimax_gapfill.py)
+        "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+    },
+    # Same raw CSV as v2_2; separate namespace for the all-features (1231) run.
+    "v2_2_full": {
+        "date_column": "Date",
+        "date_format": "%b-%y",
+        "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+    },
+    "v2_2_adaptive": {
+        "date_column": "Date",
+        "date_format": "%b-%y",       # e.g. "Jul-11"
+        # Same raw CSV as v2_2; separate name so the adaptive-selection
+        # preprocessing variant gets its own output subdirs.
+        "default_path": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+    },
 }
 
 

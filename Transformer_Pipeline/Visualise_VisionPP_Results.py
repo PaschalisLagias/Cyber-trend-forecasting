@@ -2,7 +2,11 @@
 Visualise VisionPP Results Pipeline
 ====================================
 
-This module handles the visualisation of results for the VisionTS++ model.
+Aligned with Visualise_Results.py (the Graph pipeline visualiser). All
+plotting functions are identical. Only the loader/adapter (config class,
+artifact filenames, model label) differs.
+
+This module handles the visualisation of results for the Cyber Trend Forecasting project.
 It loads historical data, model predictions, and graph structures to generate:
 1. Global Trend Analysis (Accuracy & Gap).
 2. Publication-ready Figures (Figure 3 & Figure 4).
@@ -13,13 +17,12 @@ Usage:
     $ python Visualise_VisionPP_Results.py
 """
 
-import argparse
 import os
 import sys
 import csv
 import math
-import pickle
 import numpy as np
+import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -38,7 +41,7 @@ except ImportError:
     sys.path.append(str(current_dir))
     from Cyber_Trend_VisionPP_Config import CyberVisionTSppConfig
 
-    # Global timestamp for the Double Save Archive
+# Global timestamp for the Double Save Archive
 RUN_TIMESTAMP = datetime.now().strftime("%b%d_%H%M%S")
 
 # ------------------- Helper Functions -------------------
@@ -55,11 +58,10 @@ def exponential_smoothing(series, alpha=0.1):
     Returns:
         np.array: The smoothed time series.
     """
-    if len(series) == 0:
-        return series
+    if len(series) == 0: return series
     result = [series[0]]
     for n in range(1, len(series)):
-        result.append(alpha * series[n] + (1 - alpha) * result[n - 1])
+        result.append(alpha * series[n] + (1 - alpha) * result[n-1])
     return np.array(result)
 
 
@@ -74,8 +76,7 @@ def normalise_series(series):
         np.array: The normalised series. Returns original series if max is 0.
     """
     mx = np.max(np.abs(series))
-    if mx == 0:
-        return series
+    if mx == 0: return series
     return series / mx
 
 
@@ -83,7 +84,7 @@ def clean_string(s):
     """
     Sanitises and formats a string for display in legends or matching.
 
-    Removes specific dataset artifacts like 'Solution_', '_Mentions', '_Papers', etc.,
+    Removes specific dataset artifacts like 'Solution_', '_Mentions', etc.,
     and converts the string to Title Case.
 
     Args:
@@ -107,7 +108,7 @@ def sanitise_filename(s):
         s (str): The input string.
 
     Returns:
-        str: A string safe for file paths.
+        str: A string safe for file paths (e.g., 'NLP_LLM' instead of 'NLP/LLM').
     """
     return clean_string(s).replace('/', '_').replace(' ', '_')
 
@@ -127,8 +128,7 @@ def find_col_index(target_name, all_names):
     for i, raw_name in enumerate(all_names):
         clean_col = clean_string(raw_name).lower()
         if clean_target == clean_col or clean_target in clean_col or clean_col in clean_target:
-            if len(clean_target) > 1:
-                return i
+            if len(clean_target) > 1: return i
     return None
 
 
@@ -144,13 +144,11 @@ def build_graph(file_name):
                      child nodes (Solutions).
     """
     graph = defaultdict(list)
-    if not os.path.exists(file_name):
-        return graph
+    if not os.path.exists(file_name): return graph
     with open(file_name, 'r') as f:
         reader = csv.reader(f)
         for row in reader:
-            if not row:
-                continue
+            if not row: continue
             key = row[0].strip()
             adj = [n.strip() for n in row[1:] if n.strip()]
             graph[key].extend(adj)
@@ -202,13 +200,8 @@ def double_save_figure(output_dir, filename, show_inline=True, fig=None):
     archive_path = archive_dir / f"{name}_{RUN_TIMESTAMP}{ext}"
     target.savefig(archive_path, dpi=300, bbox_inches='tight')
 
-    # Force Jupyter to display it cleanly, then
     if show_inline:
-        if fig:
-            from IPython.display import display
-            display(fig)
-        else:
-            plt.show()
+        plt.show()
 
     if fig:
         plt.close(fig)
@@ -262,36 +255,12 @@ def save_table_as_image(df, title, output_dir):
     double_save_figure(output_dir, f"{title}.png")
 
 
-def _dataset_start_date(config):
-    """Return the first observed month for the dataset referenced by `config`.
-
-    Reads the raw CSV's first row to find the date and falls back to a sensible
-    default (2011-07-01 for cyber_trend's historical start) if the CSV can't be
-    read. Keeps Fig4's x-axis honest across datasets that span different ranges.
-    """
-    fallback = datetime(2011, 7, 1)
-    if config is None:
-        return fallback
-    try:
-        df = pd.read_csv(config.raw_data_path, nrows=1)
-        first_cell = str(df.iloc[0, 0])
-        # cyber_trend: 'Jul-11'  /  csis: '04/2006'
-        for fmt in ("%b-%y", "%m/%Y"):
-            try:
-                return datetime.strptime(first_cell, fmt)
-            except ValueError:
-                continue
-    except Exception:
-        pass
-    return fallback
-
-
 def load_full_history(config, col_names):
     """
     Loads the full historical dataset from the raw CSV path defined in config.
 
     Args:
-        config (CyberVisionTSppConfig): The configuration object containing file paths.
+        config (PDFormerConfig): The configuration object containing file paths.
         col_names (list): A list of expected column names to map the data correctly.
 
     Returns:
@@ -301,14 +270,12 @@ def load_full_history(config, col_names):
     """
     csv_path = config.raw_data_path
     print(f"Loading Full History from: {csv_path}")
-    if not os.path.exists(csv_path):
-        return None, False
+    if not os.path.exists(csv_path): return None, False
 
     try:
         df = pd.read_csv(csv_path)
-        # Always drop the date/period column (whatever it's named) so only numeric
-        # feature columns remain. Works for both cyber_trend ('Date') and csis ('Period').
-        df = df.select_dtypes(include=[np.number])
+        if 'Date' in df.columns or 'month' in df.columns.str.lower():
+             df = df.select_dtypes(include=[np.number])
 
         full_history = np.zeros((len(df), len(col_names)))
         df_cols_clean = [clean_string(c).lower() for c in df.columns]
@@ -328,86 +295,58 @@ def load_full_history(config, col_names):
         print(f"Error loading CSV history: {e}")
         return None, False
 
-
 # ------------------- 1. Data Loading -------------------
 
-def load_visualisation_data(dataset: str = "cyber_trend"):
+def load_visualisation_data(dataset: str = "v2_2_full"):
     """
-    Loads and prepares all necessary data for the VisionPP visualisation pipeline.
+    Loads and prepares all necessary data for the visualisation pipeline.
 
-    Args:
-        dataset: One of 'cyber_trend' or 'csis'. Drives raw CSV path,
-            Results subdir, and whether to load the knowledge-graph structure
-            (CSIS has no Solution_* columns, so graph-driven plots are skipped).
+    It retrieves:
+    1. Model predictions (visionpp_predictions.npy).
+    2. Column names (metadata.pkl - VisionPP has no node_names.npy).
+    3. The knowledge graph structure (graph.csv).
+    4. Historical ground truth data (CSV or .npy fallback).
 
     Returns:
         dict: A dictionary containing 'preds_window', 'history_data', 'col_names',
-              'target_groups', 'trues_forecast_period', 'output_dir', and
-              'has_solutions' (False when graph-driven plots should be skipped).
+              'target_groups', 'trues_forecast_period', and 'output_dir'.
               Returns None if critical files are missing.
     """
     config = CyberVisionTSppConfig()
     config.update_from_dict({"dataset": dataset})
     data_dir = config.results_dir
+
     plot_output_dir = data_dir / 'vision_plots'
     plot_output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 60)
-    print(f"--- Loading VisionPP Visualisation Data (dataset='{dataset}') ---")
-    print(f"Results dir: {data_dir}")
+    print("="*60)
+    print(f"--- Loading Visualisation Data ---")
 
     preds_path = data_dir / 'visionpp_predictions.npy'
-    trues_path = data_dir / 'visionpp_ground_truth.npy'
-    metadata_path = config.output_dir / 'metadata.pkl'
-    graph_csv_path = project_root / "B-MTGNN" / "data" / "graph.csv"
+    graph_csv_path = config.script_dir / "B-MTGNN" / "data" / "graph.csv"
 
     if not preds_path.exists():
-        print(f"Error: visionpp_predictions.npy not found at {preds_path}.")
+        print("Error: visionpp_predictions.npy not found.")
         return None
 
     preds = np.load(preds_path)
-    trues = np.load(trues_path)
+    with open(config.output_dir / 'metadata.pkl', 'rb') as f:
+        metadata = pickle.load(f)
+    col_names = np.array(metadata.get('selected_feature_names'))
+    target_groups = build_graph(graph_csv_path)
 
-    print(f"Raw predictions shape: {preds.shape}")
-    print(f"Raw ground truth shape: {trues.shape}")
-
-    # Load feature names from metadata
-    col_names = None
-    if metadata_path.exists():
-        with open(metadata_path, 'rb') as f:
-            metadata = pickle.load(f)
-        col_names = metadata.get('selected_feature_names') or metadata.get('feature_names')
-
-    if col_names is None:
-        col_names = [f"Feature_{i}" for i in range(preds.shape[2])]
-    col_names = list(col_names)
-    print(f"Feature names loaded: {len(col_names)} features")
-
-    has_solutions = any(str(c).startswith("Solution_") for c in col_names)
-    if has_solutions:
-        target_groups = build_graph(graph_csv_path)
-    else:
-        print(f"Note: dataset '{dataset}' contains no Solution_* columns. "
-              "Skipping knowledge-graph load (Overall_Widening + Fig4 overlays disabled).")
-        target_groups = {}
-
-    # Average predictions across test samples for robust global estimates preds shape: (samples, time, features) --> mean over samples -> (time, features)
-    if preds.ndim == 3:
-        preds_window = preds.mean(axis=0)
-        trues_forecast_period = trues.mean(axis=0)
-    elif preds.ndim == 4:
-        preds_window = preds.squeeze(-1).mean(axis=0)
-        trues_forecast_period = trues.squeeze(-1).mean(axis=0)
-    else:
-        preds_window = preds
-        trues_forecast_period = trues
-
-    print(f"Averaged predictions shape: {preds_window.shape}")
+    if preds.ndim == 4: preds = preds.squeeze(-1)
+    preds_window = preds[-1, :, :]
 
     history_data, success = load_full_history(config, col_names)
     if not success:
-        print("Warning: Could not load full CSV history, using ground truth as fallback.")
-        history_data = trues_forecast_period
+        trues = np.load(data_dir / 'visionpp_ground_truth.npy')
+        if trues.ndim == 4: trues = trues.squeeze(-1)
+        history_data = trues[-1, :, :]
+
+    trues_period = np.load(data_dir / 'visionpp_ground_truth.npy')
+    if trues_period.ndim == 4: trues_period = trues_period.squeeze(-1)
+    trues_forecast_period = trues_period[-1, :, :]
 
     return {
         "preds_window": preds_window,
@@ -415,23 +354,21 @@ def load_visualisation_data(dataset: str = "cyber_trend"):
         "col_names": col_names,
         "target_groups": target_groups,
         "trues_forecast_period": trues_forecast_period,
-        "output_dir": plot_output_dir,
-        "has_solutions": has_solutions,
-        "config": config,
+        "output_dir": plot_output_dir
     }
-
 
 # ------------------- 2. Global Aggregate Plots -------------------
 
 def perform_broad_analysis(data):
     """
-    Generates two global aggregate plots to summarise model performance and risk.
+    Generates two global aggregate plots to summarise model performance and risk landscape.
 
     1. Global Forecast Accuracy:
        A single plot showing the Average Ground Truth vs Average Forecast across all nodes.
 
     2. Global Gap Analysis:
-       A single plot showing Average Threat vs Average Solution intensity, with Risk (Red) and Safety (Green) shading.
+       A single plot showing Average Threat vs Average Solution intensity,
+       with Risk (Red) and Safety (Green) shading.
 
     Args:
         data (dict): The data dictionary returned by `load_visualisation_data`.
@@ -445,9 +382,9 @@ def perform_broad_analysis(data):
     horizon = np.arange(preds.shape[0])
 
     # --- Part A: FORECAST ACCURACY (Global Average) ---
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
     print("--- FORECAST ACCURACY: Ground Truth vs Prediction ---")
-    print("=" * 60)
+    print("="*60)
 
     all_norm_trues = []
     all_norm_preds = []
@@ -472,21 +409,19 @@ def perform_broad_analysis(data):
     double_save_figure(out_dir, 'Global_Forecast_Accuracy.png')
 
     # --- Part B: GAP ANALYSIS (Global Average) ---
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
     print("--- GAP ANALYSIS: Threat vs Mitigation ---")
-    print("=" * 60)
+    print("="*60)
 
     threat_indices = []
     solution_indices = []
 
     for threat, solutions in groups.items():
         t_idx = find_col_index(threat, cols)
-        if t_idx is not None:
-            threat_indices.append(t_idx)
+        if t_idx is not None: threat_indices.append(t_idx)
         for sol in solutions:
             s_idx = find_col_index(sol, cols)
-            if s_idx is not None:
-                solution_indices.append(s_idx)
+            if s_idx is not None: solution_indices.append(s_idx)
 
     threat_indices = list(set(threat_indices))
     solution_indices = list(set(solution_indices))
@@ -515,9 +450,6 @@ def perform_broad_analysis(data):
         ax.legend(loc='upper left')
 
         double_save_figure(out_dir, 'Global_Gap_Analysis.png')
-    else:
-        print(f"Warning: Could not classify threats ({len(threat_indices)}) and solutions ({len(solution_indices)}) from graph.csv")
-
 
 # ------------------- 3. Paper Figure Functions -------------------
 
@@ -532,9 +464,9 @@ def plot_validation_forecasts(data):
     Args:
         data (dict): The data dictionary returned by `load_visualisation_data`.
     """
-    print("\n" + "=" * 60)
+    print("\n" + "="*60)
     print("--- Figure 3: Forecast Accuracy (Ground Truth vs Prediction) ---")
-    print("=" * 60)
+    print("="*60)
 
     preds = data['preds_window']
     trues = data['trues_forecast_period']
@@ -542,73 +474,117 @@ def plot_validation_forecasts(data):
     out_dir = data['output_dir']
     dates = generate_date_labels_forward(datetime(2023, 1, 1), 36)
 
-# 1. Full Size Plots
-    keys_config = [
-        {"name": "Password Attack", "terms": ["password"], "is_threat": True, "fb_name": "Malware", "fb_terms": ["malware"]},
-        {"name": "NLP/LLM", "terms": ["nlp", "llm"], "is_threat": True, "fb_name": "Ransomware", "fb_terms": ["ransomware"]},
-        {"name": "Data Backups", "terms": ["backup"], "is_threat": False, "fb_name": "Vulnerability", "fb_terms": ["vulnerab"]}
-    ]
+    # 1. Full Size Plots (Key Examples)
+    keys = ["Password Attack", "NLP/LLM", "Data Backups"]
 
-    hist = data['history_data']
-    horizon_len = preds.shape[0]
+    for k in keys:
+        # --- Data-Driven Column Matcher ---
+        candidate_indices = []
+        search_terms = []
 
-    for cfg in keys_config:
-        target_name = cfg["name"]
-        is_threat = cfg["is_threat"]
+        if k == "Password Attack":
+            search_terms = ["password"]
+        elif k == "NLP/LLM":
+            search_terms = ["nlp", "llm"]
+        elif k == "Data Backups":
+            search_terms = ["backup"]
 
-        candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["terms"])]
+        # Find all columns containing the search terms
+        for i, col_name in enumerate(cols):
+            raw_col = str(col_name).lower()
+            if any(term in raw_col for term in search_terms):
+                candidate_indices.append(i)
 
-        # If Vision model dropped the feature, use trigger the fallback
-        if not candidates:
-            target_name = cfg["fb_name"]
-            is_threat = True
-            candidates = [i for i, c in enumerate(cols) if any(t in str(c).lower() for t in cfg["fb_terms"])]
-
-        if not candidates:
-            print(f"Warning: Could not find {cfg['name']} or fallback {cfg['fb_name']}")
+        if not candidate_indices:
+            print(f"Warning: Could not find any column matching {k}")
             continue
 
-        # Use the raw history to determine volume
-        if is_threat:
-            idx = max(candidates, key=lambda i: np.max(hist[:, i]))
-        else:
-            idx = min(candidates, key=lambda i: np.max(hist[:, i]))
+        # Select the correct column based on data volume (max value in history).
+        if k in ["Password Attack", "NLP/LLM"]:
+            # Pick the column with the highest maximum value (The Threat)
+            idx = max(candidate_indices, key=lambda i: np.max(trues[:, i]))
+        else: # Data Backups
+            # Pick the column with the lowest maximum value (The Solution)
+            idx = min(candidate_indices, key=lambda i: np.max(trues[:, i]))
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
-        # --- The Real Actuals & Scaled Forecast ---
-        # 1. Get 36-month ground truth from the raw chronological CSV
-        raw_t = hist[-horizon_len:, idx]
-        raw_p = preds[:, idx]
+        # Raw Data (normalise_series is removed to preserve true Y-axis scale)
+        # raw_t = exponential_smoothing(trues[:, idx])
+        # raw_p = exponential_smoothing(preds[:, idx])
 
-        max_val = np.max(raw_t)
-        if max_val == 0: max_val = 1.0
+        max_val = np.max(trues[:, idx])
+        if max_val == 0: max_val = 1.0 # Fallback safety
+        scaled_t = exponential_smoothing(normalise_series(trues[:, idx]) * max_val)
+        scaled_p = exponential_smoothing(normalise_series(preds[:, idx]) * max_val)
 
-        # Actuals: True raw chronological data
-        smooth_t = exponential_smoothing(raw_t)
+        # Actual = Blue (#0000fe)
+        ax.plot(dates, scaled_t, label='Actual', color='#0000fe', linewidth=2)
+        # Forecast = Purple (#7f007f)
+        ax.plot(dates, scaled_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=2)
 
-        # Forecast: Normalize shape, then multiply by true max volume to align them perfectly
-        smooth_p = exponential_smoothing(normalise_series(raw_p) * max_val)
+        # Confidence = Light Pink (#fee6ea)
+        ax.fill_between(dates, scaled_p*0.95, scaled_p*1.05, color='#fee6ea', alpha=0.6, label='95% Confidence')
 
-        # Actual = Blue
-        ax.plot(dates, smooth_t, label='Actual', color='#0000fe', linewidth=2)
-        # Forecast = Purple
-        ax.plot(dates, smooth_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=2)
-
-        # Confidence = Light Pink
-        ax.fill_between(dates, smooth_p*0.95, smooth_p*1.05, color='#fee6ea', alpha=0.6, label='95% Confidence')
-
-        ax.set_title(f"Figure 3: {clean_string(target_name)}", fontsize=16)
+        ax.set_title(f"Figure 3: {clean_string(k)}", fontsize=16)
 
         # --- Explicit Formatting & Grids ---
         ax.set_xlabel('Month', fontsize=12, fontweight='bold')
         ax.set_ylabel('Trend', fontsize=12, fontweight='bold')
+
+        # Set gridlines to draw *behind* the plot lines
         ax.set_axisbelow(True)
+
+        # Clean auto-spacing
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
         plt.xticks(rotation=45)
+
+        # Grid: Draw strict lines on both X and Y
         ax.grid(True, which='major', axis='both', linestyle='-', color='lightgray', alpha=0.7)
+
+        # Formatted Legend
         ax.legend(loc='upper left', fontsize=10, frameon=True, edgecolor='black')
-        double_save_figure(out_dir, f'Fig3_{sanitise_filename(target_name)}.png', show_inline=True, fig=fig)
+
+        # Pass `fig=fig` to explicitly close it and prevent duplicate blank plots
+        double_save_figure(out_dir, f'Fig3_{sanitise_filename(k)}.png', show_inline=True, fig=fig)
+
+    # 2. Grid View (All Nodes)
+    # DISABLED
+    '''
+    print("\n--- Generating Grid View (All Validation Nodes) ---")
+
+    all_valid_indices = [i for i in range(len(cols)) if np.sum(trues[:, i]) > 0]
+    n_plots = len(all_valid_indices)
+
+    if n_plots > 0:
+        ncols = 3
+        nrows = math.ceil(n_plots / ncols)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(15, 3 * nrows))
+        axes = axes.flatten()
+
+        for i, idx in enumerate(all_valid_indices):
+            ax = axes[i]
+            node_name = cols[idx]
+
+            norm_t = exponential_smoothing(normalise_series(trues[:, idx]))
+            norm_p = exponential_smoothing(normalise_series(preds[:, idx]))
+
+            # Updated Colors for Grid View as well
+            ax.plot(dates, norm_t, label='Actual', color='#0000fe', linewidth=1.5)
+            ax.plot(dates, norm_p, label='Forecast', color='#7f007f', linestyle='--', linewidth=1.5)
+
+            ax.set_title(clean_string(node_name), fontsize=10)
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b-%y'))
+            ax.tick_params(axis='x', rotation=45, labelsize=8)
+
+            if i == 0: ax.legend(loc='upper right', fontsize=8)
+
+        for j in range(i + 1, len(axes)):
+            axes[j].axis('off')
+
+        double_save_figure(out_dir, 'Fig3_Grid_View_All.png', show_inline=False)
+    '''
 
 def generate_gap_analysis_tables(data):
     """
@@ -622,14 +598,9 @@ def generate_gap_analysis_tables(data):
     Args:
         data (dict): The data dictionary returned by `load_visualisation_data`.
     """
-    print("\n" + "=" * 50)
+    print("\n" + "="*50)
     print("--- GAP TABLES: Widening & Narrowing ---")
-    print("=" * 50)
-
-    if not data.get('has_solutions', True) or not data['target_groups']:
-        print("Skipping gap tables: dataset has no Solution_* columns to compute "
-              "threat-vs-solution divergence against (Overall_Widening / Narrowing skipped).")
-        return
+    print("="*50)
 
     preds = data['preds_window']
     cols = data['col_names']
@@ -640,35 +611,29 @@ def generate_gap_analysis_tables(data):
     def get_avgs(idx):
         c = max(1, n // 3)
         return [np.mean(normalise_series(preds[0:c, idx])),
-                np.mean(normalise_series(preds[c:c * 2, idx])),
-                np.mean(normalise_series(preds[c * 2:, idx]))]
+                np.mean(normalise_series(preds[c:c*2, idx])),
+                np.mean(normalise_series(preds[c*2:, idx]))]
 
     wid_s, wid_o, nar_s, nar_o = [], [], [], []
 
     for threat, solutions in groups.items():
         t_idx = find_col_index(threat, cols)
-        if t_idx is None:
-            continue
+        if t_idx is None: continue
         t_yrs = get_avgs(t_idx)
 
         for sol in solutions:
             s_idx = find_col_index(sol, cols)
-            if s_idx is None:
-                continue
+            if s_idx is None: continue
             s_yrs = get_avgs(s_idx)
             diffs = [t - s for t, s in zip(t_yrs, s_yrs)]
 
             e = {"Threat": clean_string(threat), "PAT": clean_string(sol),
-                 "2023": round(diffs[0], 3), "2024": round(diffs[1], 3), "2025": round(diffs[2], 3)}
+                 "2023": round(diffs[0],3), "2024": round(diffs[1],3), "2025": round(diffs[2],3)}
 
-            if diffs[0] < diffs[1] < diffs[2]:
-                wid_s.append(e)
-            elif diffs[2] > diffs[0]:
-                wid_o.append(e)
-            elif diffs[0] > diffs[1] > diffs[2]:
-                nar_s.append(e)
-            elif diffs[2] < diffs[0]:
-                nar_o.append(e)
+            if diffs[0] < diffs[1] < diffs[2]: wid_s.append(e)
+            elif diffs[2] > diffs[0]: wid_o.append(e)
+            elif diffs[0] > diffs[1] > diffs[2]: nar_s.append(e)
+            elif diffs[2] < diffs[0]: nar_o.append(e)
 
     def print_tab(d, t, f):
         df = pd.DataFrame(d)
@@ -682,7 +647,6 @@ def generate_gap_analysis_tables(data):
     print_tab(wid_o, "Table 5b: Overall Widening Gaps", "Overall_Widening")
     print_tab(nar_s, "Table 6a: Strictly Narrowing Gaps", "Strictly_Narrowing")
     print_tab(nar_o, "Table 6b: Overall Narrowing Gaps", "Overall_Narrowing")
-
 
 def plot_continuous_trends(data):
     """
@@ -701,15 +665,11 @@ def plot_continuous_trends(data):
     cols = data['col_names']
     groups = data['target_groups']
     out_dir = data['output_dir']
-    has_solutions = data.get('has_solutions', True)
-    config = data.get('config')
 
     min_c = min(hist.shape[1], fore.shape[1])
     full = np.concatenate([hist[:, :min_c], fore[:, :min_c]], axis=0)
 
-    # Anchor the time axis to whatever the loaded dataset starts at. For cyber_trend this resolves to 2011-07; for csis it's 2006-04.
-    start_date = _dataset_start_date(config)
-    dates = generate_date_labels_forward(start_date, full.shape[0])
+    dates = generate_date_labels_forward(datetime(2011, 7, 1), full.shape[0])
     f_start = hist.shape[0]
     f_dates = dates[f_start:]
 
@@ -717,27 +677,19 @@ def plot_continuous_trends(data):
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
 
     for k in keys:
-        # Try the graph first (cyber_trend); fall back to direct column-name match (csis).
         match = None
         for g in groups:
             if clean_string(k).lower() in clean_string(g).lower() or clean_string(g).lower() in clean_string(k).lower():
                 match = g
                 break
 
-        if not match and not has_solutions:
-            # No graph -> match against col_names directly (e.g. 'Malware-ALL').
-            for c in cols:
-                if clean_string(k).lower() in clean_string(c).lower():
-                    match = c
-                    break
-
         if not match:
-            print(f"WARNING: Skipping '{k}' plot! Could not find a match.")
+            print(f"WARNING: Skipping '{k}' plot! Could not find a match in graph.csv")
             continue
 
         idx = find_col_index(match, cols)
         if idx is None:
-            print(f"WARNING: Skipping '{k}' plot! Found a label but missing from col_names.")
+            print(f"WARNING: Skipping '{k}' plot! Found in graph but missing from node_names.npy")
             continue
 
         sm_full = exponential_smoothing(normalise_series(full[:, idx]))
@@ -747,14 +699,12 @@ def plot_continuous_trends(data):
 
         sm_fore = sm_full[f_start:]
         lim = min(len(f_dates), len(sm_fore))
-        ax.fill_between(f_dates[:lim], sm_fore[:lim] - 0.05, sm_fore[:lim] + 0.05, color='mistyrose', alpha=0.5)
+        ax.fill_between(f_dates[:lim], sm_fore[:lim]-0.05, sm_fore[:lim]+0.05, color='mistyrose', alpha=0.5)
 
         c_idx = 0
-        # If match came from col_names (no graph), skip solution overlays cleanly.
-        for sol in groups.get(match, []):
+        for sol in groups[match]:
             s_idx = find_col_index(sol, cols)
-            if s_idx is None:
-                continue
+            if s_idx is None: continue
 
             s_sm = exponential_smoothing(normalise_series(full[:, s_idx]))
             s_fore = s_sm[f_start:][:lim]
@@ -763,7 +713,7 @@ def plot_continuous_trends(data):
             if len(s_fore) > 0 and np.mean(s_fore) < np.mean(t_fore):
                 c = colors[c_idx % len(colors)]
                 ax.plot(dates[:len(s_sm)], s_sm, color=c, linewidth=1.5, label=clean_string(sol))
-                ax.fill_between(f_dates[:lim], t_fore, s_fore, where=(t_fore > s_fore), color=c, alpha=0.1)
+                ax.fill_between(f_dates[:lim], t_fore, s_fore, where=(t_fore>s_fore), color=c, alpha=0.1)
                 c_idx += 1
 
         ax.set_title(f"Fig 4: {clean_string(k)}", fontsize=16)
@@ -773,16 +723,10 @@ def plot_continuous_trends(data):
         ax.legend(loc='upper left')
         double_save_figure(out_dir, f'Fig4_{sanitise_filename(k)}.png')
 
-
-def visualise_evaluation_metrics(dataset: str = "cyber_trend"):
-    """
-    Loads the evaluation CSV and generate table image.
-
-    Reads from Results/<dataset>/visionpp_evaluation_results.csv and writes
-    Results/<dataset>/vision_plots/Vision_Eval_Table.png.
-    """
+def visualise_evaluation_metrics(dataset: str = "v2_2_full"):
+    """ Loads the evaluation CSV and generates a publication-ready table image.
+    Executes the Double-Save archive logic for safe historic tracking."""
     print("\n--- Generating Evaluation Metrics Table ---")
-
     config = CyberVisionTSppConfig()
     config.update_from_dict({"dataset": dataset})
     csv_path = config.results_dir / 'visionpp_evaluation_results.csv'
@@ -810,7 +754,7 @@ def visualise_evaluation_metrics(dataset: str = "cyber_trend"):
 
     for (row, col), cell in table.get_celld().items():
         if row == 0:
-            # Header Row
+            # Header Row: Darker gray background, standard border
             cell.set_text_props(weight='bold')
             cell.set_facecolor('#d9d9d9')
             cell.set_edgecolor('gray')
@@ -821,23 +765,20 @@ def visualise_evaluation_metrics(dataset: str = "cyber_trend"):
             cell.set_edgecolor('black')
             cell.set_linewidth(1.5)
         else:
-            # Standard Horizon Rows
+            # Standard Horizon Rows: White background, thin borders
             cell.set_edgecolor('gray')
             cell.set_linewidth(0.5)
 
     plt.title("VisionTS++ Evaluation Metrics", fontsize=14, pad=10, fontweight='bold')
 
     # Add the footnote
-    plt.figtext(0.5, 0.05, "* Overall represents the full 36-month forecast period.",
-                ha="center", fontsize=10, style='italic', color='#555555')
+    plt.figtext(0.5, 0.05, "* Overall represents the full 36-month forecast period.", ha="center", fontsize=10, style='italic', color='#555555')
 
     # Executes the Double-Save and displays inline in the notebook
     double_save_figure(output_dir, 'Vision_Eval_Table.png')
 
-def visualise(dataset: str = "cyber_trend"):
-    """
-    Main entry point. Executes the full VisionPP visualisation pipeline in sequence.
-    """
+def visualise(dataset: str = "v2_2_full"):
+    """Main entry point. Executes the full visualisation pipeline in sequence."""
     data = load_visualisation_data(dataset=dataset)
     if data:
         perform_broad_analysis(data)
@@ -846,20 +787,8 @@ def visualise(dataset: str = "cyber_trend"):
         plot_continuous_trends(data)
         visualise_evaluation_metrics(dataset=dataset)
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Render VisionTS++ paper-style figures for a dataset.")
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="cyber_trend",
-        choices=["cyber_trend", "csis", "mark3", "v2_1"],
-        help="Dataset to visualise (default: cyber_trend). Reads from Results/<dataset>/ "
-             "and writes to Results/<dataset>/vision_plots/.",
-    )
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    args = parse_args()
-    visualise(dataset=args.dataset)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=str, default="v2_2_full")
+    visualise(dataset=parser.parse_args().dataset)

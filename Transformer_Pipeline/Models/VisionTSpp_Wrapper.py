@@ -69,6 +69,11 @@ class VisionTSppModel(nn.Module):
         self.clip_input = config.get("clip_input", 0)
         self.complete_no_clip = config.get("complete_no_clip", False)
 
+        # Chunked rendering: render at most chunk_size variables per image and concatenate the per-chunk forecasts.
+        # With N features each variable gets int(224/N) image rows, so at 159 features every series is a single row.
+        # None = render all features in one image (original behaviour).
+        self.chunk_size = config.get("chunk_size", None)
+
         print(f"Init VisionTS++ wrapper:")
         print(f"  - Architecture: {model_arch}")
         print(f"  - Fine-tune type: {finetune_type}")
@@ -86,7 +91,6 @@ class VisionTSppModel(nn.Module):
         # Ensure checkpoint directory exists
         Path(ckpt_dir).mkdir(parents=True, exist_ok=True)
 
-        # Initialize the VisionTS++ model
         self.visionts_engine = VisionTSpp(
             arch=model_arch,
             finetune_type=finetune_type,
@@ -121,11 +125,39 @@ class VisionTSppModel(nn.Module):
         print(f"  - Periodicity: {periodicity}")
         print(f"  - Norm const: {norm_const}")
         print(f"  - Align const: {align_const}")
+        print(f"  - Chunk size: {self.chunk_size if self.chunk_size else 'off (single image)'}")
 
         # Count parameters
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         total_params = sum(p.numel() for p in self.parameters())
         print(f"VisionTS++ initialized. Parameters: {trainable_params:,} trainable / {total_params:,} total")
+
+    def _feature_chunks(self, nvars: int):
+        """Contiguous feature slices of at most self.chunk_size variables."""
+        cs = self.chunk_size
+        return [(i, min(i + cs, nvars)) for i in range(0, nvars, cs)]
+
+    def _engine_forward(self, x: torch.Tensor):
+        """Run the engine, chunking over features when chunk_size is set.
+
+        Returns a tensor, or [main_pred, [quantile_preds...]] in quantile mode.
+        """
+        if not self.chunk_size or x.shape[-1] <= self.chunk_size:
+            return self.visionts_engine(x)
+
+        mains, quant_chunks = [], []
+        for lo, hi in self._feature_chunks(x.shape[-1]):
+            out = self.visionts_engine(x[:, :, lo:hi])
+            if self.quantile and isinstance(out, list):
+                mains.append(out[0])
+                quant_chunks.append(out[1])
+            else:
+                mains.append(out)
+        main = torch.cat(mains, dim=-1)
+        if not quant_chunks:
+            return main
+        quantiles = [torch.cat(qs, dim=-1) for qs in zip(*quant_chunks)]
+        return [main, quantiles]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -138,7 +170,7 @@ class VisionTSppModel(nn.Module):
             Predictions tensor of shape (batch, pred_len, nvars)
             If quantile=True, returns [predictions, [quantile_predictions...]]
         """
-        y_pred = self.visionts_engine(x)
+        y_pred = self._engine_forward(x)
 
         # If quantile mode, extract just the main prediction for standard usage
         if self.quantile and isinstance(y_pred, list):
@@ -155,13 +187,12 @@ class VisionTSppModel(nn.Module):
             x: Input tensor of shape (batch, context_len, nvars)
 
         Returns:
-            tuple: (predictions, quantile_list) if quantile=True
-                   else just predictions
+            tuple: (predictions, quantile_list) if quantile=True else just predictions
         """
         if not self.quantile:
-            return self.visionts_engine(x), None
+            return self._engine_forward(x), None
 
-        result = self.visionts_engine(x)
+        result = self._engine_forward(x)
         if isinstance(result, list):
             return result[0], result[1]
         return result, None
@@ -176,6 +207,10 @@ class VisionTSppModel(nn.Module):
         Returns:
             tuple: (predictions, input_image, reconstructed_image, nvars, color_list)
         """
+        if self.chunk_size and x.shape[-1] > self.chunk_size:
+            raise NotImplementedError(
+                "forward_with_images does not support chunked rendering; "
+                "call with chunk_size=None or <=chunk_size features")
         return self.visionts_engine(x, export_image=True)
 
     def update_config(self, **kwargs):
