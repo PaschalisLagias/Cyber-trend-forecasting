@@ -65,6 +65,39 @@ def train(data, X, Y, model, criterion, optim, batch_size):
         iter += 1
     return total_loss / n_samples
 
+def evaluate(data, X, Y, model, criterion, batch_size):
+    """
+    Evaluates the model on the provided data split without updating weights.
+    """
+    model.eval()
+    total_loss = 0
+    n_samples = 0
+    
+    with torch.no_grad():
+        for X, Y in data.get_batches(X, Y, batch_size, False):
+            X = torch.unsqueeze(X, dim=1)
+            X = X.transpose(2, 3)
+            
+            tx = X[:, :, :, :]
+            ty = Y[:, :, :]
+            
+            output = model(tx)
+            output = torch.squeeze(output, 3)
+            
+            scale = data.scale.expand(output.size(0), output.size(1), data.m)
+            scale = scale[:, :, :]
+            
+            # Calculate validation loss on normalised bounds
+            loss = criterion(output, ty)
+            
+            # Scale back up for accurate error logging
+            output = output * scale
+            ty = ty * scale
+            total_loss += loss.item()
+            n_samples += (output.size(0) * output.size(1) * data.m)
+            
+    return total_loss / n_samples
+
 
 parser = argparse.ArgumentParser(description='PyTorch Time series forecasting')
 parser.add_argument('--data', type=str, default='./data/sm_data.txt',
@@ -144,11 +177,11 @@ dilation_ex=hp[8]
 node_dim=hp[9]
 prop_alpha=hp[10]
 tanh_alpha=hp[11]
-epochs=hp[-1]
+epochs=args.epochs # Override hp.txt to respect the notebook CLI argument
 
 
-Data = DataLoaderS(args.data, 0.43, 0.30, device, args.horizon, args.seq_in_len, args.normalize,args.seq_out_len)
-
+# Reverting data splits to 0.43 (Train) and 0.30 (Valid) toaccommodate the 36-month horizon
+Data = DataLoaderS(args.data, 0.43, 0.30, device, args.horizon, args.seq_in_len, args.normalize, args.seq_out_len)
 
 
 model = gtnet(args.gcn_true, args.buildA_true, gcn_depth, args.num_nodes,
@@ -169,9 +202,11 @@ nParams = sum([p.nelement() for p in model.parameters()])
 print('Number of model parameters is', nParams, flush=True)
 
 if args.L1Loss:
-    criterion = nn.L1Loss(reduction='sum').to(device)
+    # Replaced standard L1 loss with Smooth L1 to mitigate gradient explosion from outliers
+    criterion = nn.SmoothL1Loss(reduction='sum', beta=1.0).to(device)
 else:
     criterion = nn.MSELoss(reduction='sum').to(device)
+    
 evaluateL2 = nn.MSELoss(reduction='sum').to(device) #MSE
 evaluateL1 = nn.L1Loss(reduction='sum').to(device) #MAE
 
@@ -180,15 +215,37 @@ optim = Optim(
     list(model.parameters()), args.optim, lr, args.clip, lr_decay=args.weight_decay
 )
 
+# Initialise the learning rate scheduler to reduce learning rate when validation loss plateaus
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optim.optimizer, mode='min', factor=0.5, patience=10
+)
+
 # At any point you can hit Ctrl + C to break out of training early.
 try:
     print('begin training')
+    best_val_loss = float('inf')  # Initialise validation loss tracker
+    
     for epoch in range(1, epochs + 1):
-        print('epoch:',epoch)
         epoch_start_time = time.time()
+        
+        # Execute training pass
         train_loss = train(Data, Data.train[0], Data.train[1], model, criterion, optim, args.batch_size)
-    with open(args.save, 'wb') as f:
-        torch.save(model, f)        
+        
+        # Execute validation pass without updating weights
+        val_loss = evaluate(Data, Data.valid[0], Data.valid[1], model, criterion, args.batch_size)
+        
+        # Step the learning rate scheduler based on validation loss
+        scheduler.step(val_loss)
+        
+        # Dynamically save the model only if the validation loss improves
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            with open(args.save, 'wb') as f:
+                torch.save(model, f)
+            print(f"epoch: {epoch:3d} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} --> Model Saved")
+        else:
+            print(f"epoch: {epoch:3d} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} (No improvement)")
+            
 except KeyboardInterrupt:
     print('-' * 89)
     print('Exiting from training early')
