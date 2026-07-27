@@ -20,6 +20,7 @@ Usage:
 """
 
 import sys
+import argparse
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -32,12 +33,25 @@ from Config.Paths import (
     PROCESSED_VISION_DIR, VISION_WORKING_CSV, VISION_ARCHIVE_DIR
 )
 
+# Initialise argument parser to accept the raw data file path dynamically
+parser = argparse.ArgumentParser(description='Prepare unsmoothed data for forecasting pipelines.')
+parser.add_argument('--input_file', type=str, required=False, default=None, help='Path to the raw dataset file. Defaults to V2_2_SARIMAX_CSV if omitted.')
+args = parser.parse_args()
+
 # --- Path Configuration ---
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = ROOT_DIR
 
-# Input paths
-INPUT_CSV_PATH = V2_2_SARIMAX_CSV
+# Input paths: Assign dynamic argument if provided, otherwise default to legacy hardcoded path
+if args.input_file:
+    # Append .resolve() to convert the relative CLI string into an absolute path
+    INPUT_CSV_PATH = Path(args.input_file).resolve()
+else:
+    INPUT_CSV_PATH = V2_2_SARIMAX_CSV
+
+# Extract the file stem for dynamic output naming in the archive block
+input_stem = INPUT_CSV_PATH.stem
+
 LEGACY_HEADER_PATH = BMTGNN_SM_DATA_G_CSV
 MAPPING_CSV_PATH = CURRENT_DIR / "column_mapping.csv"
 
@@ -120,6 +134,54 @@ def prepare_data():
     BMTGNN_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     VISION_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # # 8. Execute dual exports with comparison and archiving logic
+    # print("Comparing new data against existing working file...")
+    # data_is_new = True
+    # new_matrix = df_filtered.to_numpy(dtype=float)
+
+    # if OUTPUT_TXT_PATH.exists():
+    #     try:
+    #         existing_matrix = np.loadtxt(OUTPUT_TXT_PATH, delimiter='\t')
+    #         # Compare shapes and ensure element-wise parity within float tolerances
+    #         if existing_matrix.shape == new_matrix.shape and np.allclose(existing_matrix, new_matrix, atol=1e-5):
+    #             print("Data matches the current working file exactly. Bypassing export.")
+    #             data_is_new = False
+    #     except Exception as e:
+    #         print(f"Comparison failed, proceeding with standard export: {e}")
+
+    # if data_is_new:
+    #     print(f"Exporting legacy B-MTGNN matrix to: {OUTPUT_TXT_PATH.relative_to(PROJECT_ROOT)}")
+    #     print(f"Exporting VisionTS++ CSV to: {OUTPUT_CSV_PATH.relative_to(PROJECT_ROOT)}")
+    #     try:
+    #         # Export 1: Legacy B-MTGNN (headerless, tab-separated, strictly float matrix)
+    #         df_filtered.to_csv(OUTPUT_TXT_PATH, sep='\t', header=False, index=False, float_format='%.6f')
+            
+    #         # Export 2: VisionTS++ (standard CSV, retains headers and temporal column)
+    #         df_vision.to_csv(OUTPUT_CSV_PATH, index=False)
+            
+    #         # Export 3: Archive instances dynamically named using the input file stem
+    #         # The input_stem variable is now populated globally via the argparse argument
+    #         bmtgnn_archive_path = BMTGNN_ARCHIVE_DIR / f"sm_data_{input_stem}.txt"
+    #         vision_archive_path = VISION_ARCHIVE_DIR / f"clipped_{input_stem}.csv"
+            
+    #         print(f"Archiving B-MTGNN matrix to: {bmtgnn_archive_path.relative_to(PROJECT_ROOT)}")
+    #         df_filtered.to_csv(bmtgnn_archive_path, sep='\t', header=False, index=False, float_format='%.6f')
+            
+    #         print(f"Archiving VisionTS++ CSV to: {vision_archive_path.relative_to(PROJECT_ROOT)}")
+    #         df_vision.to_csv(vision_archive_path, index=False)
+            
+    #         print("\nSUCCESS: Phase 1 Data preparation and archiving complete.")
+    #         print(f"Legacy Matrix saved to: {OUTPUT_TXT_PATH}")
+    #         print(f"VisionTS++ CSV saved to: {OUTPUT_CSV_PATH}")
+    #         print("=" * 60)
+            
+    #     except Exception as e:
+    #         print(f"Failed to save dual exports: {e}")
+    #         sys.exit(1)
+    # else:
+    #     print("\nSUCCESS: Phase 1 Data preparation complete (No changes applied).")
+    #     print("=" * 60)
+
     # 8. Execute dual exports with comparison and archiving logic
     print("Comparing new data against existing working file...")
     data_is_new = True
@@ -130,43 +192,35 @@ def prepare_data():
             existing_matrix = np.loadtxt(OUTPUT_TXT_PATH, delimiter='\t')
             # Compare shapes and ensure element-wise parity within float tolerances
             if existing_matrix.shape == new_matrix.shape and np.allclose(existing_matrix, new_matrix, atol=1e-5):
-                print("Data matches the current working file exactly. Bypassing export.")
+                print("Data matches the current working file exactly. Bypassing overwrite of main file.")
                 data_is_new = False
         except Exception as e:
             print(f"Comparison failed, proceeding with standard export: {e}")
 
-    if data_is_new:
-        print(f"Exporting legacy B-MTGNN matrix to: {OUTPUT_TXT_PATH.relative_to(PROJECT_ROOT)}")
-        print(f"Exporting VisionTS++ CSV to: {OUTPUT_CSV_PATH.relative_to(PROJECT_ROOT)}")
-        try:
-            # Export 1: Legacy B-MTGNN (headerless, tab-separated, strictly float matrix)
+    try:
+        if data_is_new:
+            print(f"Exporting legacy B-MTGNN matrix to: {OUTPUT_TXT_PATH.relative_to(PROJECT_ROOT)}")
             df_filtered.to_csv(OUTPUT_TXT_PATH, sep='\t', header=False, index=False, float_format='%.6f')
             
-            # Export 2: VisionTS++ (standard CSV, retains headers and temporal column)
+            print(f"Exporting VisionTS++ CSV to: {OUTPUT_CSV_PATH.relative_to(PROJECT_ROOT)}")
             df_vision.to_csv(OUTPUT_CSV_PATH, index=False)
-            
-            # Export 3: Archive instances dynamically named using the input file stem
-            input_stem = INPUT_CSV_PATH.stem
-            bmtgnn_archive_path = BMTGNN_ARCHIVE_DIR / f"sm_data_{input_stem}.txt"
-            vision_archive_path = VISION_ARCHIVE_DIR / f"clipped_{input_stem}.csv"
-            
-            print(f"Archiving B-MTGNN matrix to: {bmtgnn_archive_path.relative_to(PROJECT_ROOT)}")
-            df_filtered.to_csv(bmtgnn_archive_path, sep='\t', header=False, index=False, float_format='%.6f')
-            
-            print(f"Archiving VisionTS++ CSV to: {vision_archive_path.relative_to(PROJECT_ROOT)}")
-            df_vision.to_csv(vision_archive_path, index=False)
-            
-            print("\nSUCCESS: Phase 1 Data preparation and archiving complete.")
-            print(f"Legacy Matrix saved to: {OUTPUT_TXT_PATH}")
-            print(f"VisionTS++ CSV saved to: {OUTPUT_CSV_PATH}")
-            print("=" * 60)
-            
-        except Exception as e:
-            print(f"Failed to save dual exports: {e}")
-            sys.exit(1)
-    else:
-        print("\nSUCCESS: Phase 1 Data preparation complete (No changes applied).")
+        
+        # CRITICAL FIX: ALWAYS export the dynamically named archives for parallel processing
+        bmtgnn_archive_path = BMTGNN_ARCHIVE_DIR / f"sm_data_{input_stem}.txt"
+        vision_archive_path = VISION_ARCHIVE_DIR / f"clipped_{input_stem}.csv"
+        
+        print(f"Archiving B-MTGNN matrix to: {bmtgnn_archive_path.relative_to(PROJECT_ROOT)}")
+        df_filtered.to_csv(bmtgnn_archive_path, sep='\t', header=False, index=False, float_format='%.6f')
+        
+        print(f"Archiving VisionTS++ CSV to: {vision_archive_path.relative_to(PROJECT_ROOT)}")
+        df_vision.to_csv(vision_archive_path, index=False)
+        
+        print("\nSUCCESS: Phase 1 Data preparation and archiving complete.")
         print("=" * 60)
+        
+    except Exception as e:
+        print(f"Failed to save exports: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     prepare_data()
