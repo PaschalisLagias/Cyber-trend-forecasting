@@ -12,10 +12,21 @@ Output is saved as a structured CSV.
 import os
 import sys
 import math
+import argparse
 import torch
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
+from Config.Paths import *
+from util import DataLoaderS
+
+# Initialise argument parser for dynamic parallel execution
+parser = argparse.ArgumentParser(description='Evaluate model metrics and save outputs dynamically.')
+parser.add_argument('--experiment_tag', type=str, required=False, default='', help='Tag appended to output CSV (e.g., _Mark3).')
+parser.add_argument('--model_file', type=str, required=False, default=None, help='Path to the specific model .pt file.')
+parser.add_argument('--data_file', type=str, required=False, default=None, help='Path to the specific dataset .txt file.')
+args = parser.parse_args()
 
 # Path Configuration
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -28,14 +39,19 @@ B_MTGNN_DIR = PROJECT_ROOT / 'B-MTGNN'
 if str(B_MTGNN_DIR) not in sys.path:
     sys.path.append(str(B_MTGNN_DIR))
 
-from Config.Paths import *
-from util import DataLoaderS
+# File configurations: Assign dynamic arguments if provided, otherwise default to legacy hardcoded paths
+if args.data_file:
+    DATA_FILE = Path(args.data_file)
+else:
+    DATA_FILE = BMTGNN_WORKING_TXT 
 
-# File configurations
-DATA_FILE = BMTGNN_WORKING_TXT 
-MODEL_FILE = B_MTGNN_DIR / 'model' / 'Bayesian' / 'o_model.pt'
-OUTPUT_CSV = CURRENT_DIR / 'Results' / 'graph_evaluation_results.csv'
+if args.model_file:
+    MODEL_FILE = Path(args.model_file)
+else:
+    MODEL_FILE = B_MTGNN_DIR / 'model' / 'Bayesian' / 'o_model.pt'
 
+# Append the tag dynamically to the CSV filename to prevent overwriting historical runs
+OUTPUT_CSV = CURRENT_DIR / 'Results' / f'graph_evaluation_results{args.experiment_tag}.csv'
 
 def compute_metrics(predict, y_test):
     """
