@@ -199,7 +199,7 @@ def double_save_figure(output_dir, filename, show_inline=True, fig=None):
 
 # --- Core Plotting Function ---
 
-def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates, f_start, out_dir):
+def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates, f_start, out_dir, alpha=0.01):
     """
     Generates a Figure 4 style continuous trend plot using Plot-Specific Normalisation.
     The Threat and its specific PATs are scaled based on the maximum volume found 
@@ -207,7 +207,7 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
     """
     t_idx = find_col_index(threat_key, cols)
     if t_idx is None:
-        return False # Threat missing from array
+        return False 
 
     fig, ax = plt.subplots(figsize=(12, 6))
     colors = [
@@ -216,7 +216,6 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
     ]
     
     # 1. Identify Plot-Specific Maximum across Threat AND its PATs
-    # This prevents an external outlier (like DDoS) from squashing this chart.
     local_data_arrays = [trues[:, t_idx], preds[:, t_idx]]
     
     valid_pat_indices = []
@@ -227,14 +226,13 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
             valid_pat_indices.append(s_idx)
             local_data_arrays.extend([trues[:, s_idx], preds[:, s_idx]])
             
-    # Calculate the localized peak to use as the denominator
     plot_max = np.max(np.abs(np.concatenate(local_data_arrays)))
     if plot_max == 0:
         plot_max = 1.0
         
-    # 2. Process Threat (Scaled by plot_max)
-    sm_hist = exponential_smoothing(trues[:, t_idx] / plot_max)
-    sm_fore = exponential_smoothing(preds[:, t_idx] / plot_max)
+    # 2. Process Threat (Scaled by plot_max, dynamically smoothed)
+    sm_hist = exponential_smoothing(trues[:, t_idx] / plot_max, alpha=alpha)
+    sm_fore = exponential_smoothing(preds[:, t_idx] / plot_max, alpha=alpha)
     
     sm_fore_connected = np.insert(sm_fore, 0, sm_hist[-1])
     f_dates = dates[f_start-1:]
@@ -242,43 +240,35 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
     ax.plot(dates[:f_start], sm_hist, color='black', linewidth=2.5, label=f"Threat: {clean_string(threat_key)}")
     ax.plot(f_dates, sm_fore_connected, color='black', linewidth=2.5)
 
-    # Threat Confidence Interval
     if conf is not None:
-        c_val = exponential_smoothing(conf[:, t_idx] / plot_max)
+        c_val = exponential_smoothing(conf[:, t_idx] / plot_max, alpha=alpha)
         c_val_connected = np.insert(c_val, 0, 0) 
-        # Plotted without a label here to prevent duplicate legend entries
         ax.fill_between(f_dates, sm_fore_connected - c_val_connected, sm_fore_connected + c_val_connected, 
                         color='mistyrose', alpha=0.5)
 
-    # 3. Process Solutions (Scaled by plot_max to maintain parity)
+    # 3. Process Solutions 
     c_idx = 0
     for s_idx in valid_pat_indices:
         raw_s_hist = trues[:, s_idx]
         raw_s_fore = preds[:, s_idx]
         
-        sm_s_hist = exponential_smoothing(raw_s_hist / plot_max)
-        sm_s_fore = exponential_smoothing(raw_s_fore / plot_max)
+        sm_s_hist = exponential_smoothing(raw_s_hist / plot_max, alpha=alpha)
+        sm_s_fore = exponential_smoothing(raw_s_fore / plot_max, alpha=alpha)
         sm_s_fore_connected = np.insert(sm_s_fore, 0, sm_s_hist[-1])
         
-        # Filtering Rule: Plot only if Solution forecast mean is strictly lower than Threat forecast mean
         if np.mean(sm_s_fore) < np.mean(sm_fore):
             c = colors[c_idx % len(colors)]
-            
-            # Extract name directly from column index
             pat_name = clean_string(cols[s_idx])
             
             ax.plot(dates[:f_start], sm_s_hist, color=c, linewidth=1.5, label=pat_name)
             ax.plot(f_dates, sm_s_fore_connected, color=c, linewidth=1.5)
             
-            # Risk Gap Shading
             ax.fill_between(f_dates, sm_fore_connected, sm_s_fore_connected, 
                             where=(sm_fore_connected > sm_s_fore_connected), color=c, alpha=0.1)
 
-            # Solution Confidence Interval
             if conf is not None:
-                c_s_val = exponential_smoothing(conf[:, s_idx] / plot_max)
+                c_s_val = exponential_smoothing(conf[:, s_idx] / plot_max, alpha=alpha)
                 c_s_val_connected = np.insert(c_s_val, 0, 0)
-                # Plotted without a label here to prevent duplicate legend entries
                 ax.fill_between(f_dates, sm_s_fore_connected - c_s_val_connected, sm_s_fore_connected + c_s_val_connected, 
                                 color=c, alpha=0.15) 
             c_idx += 1
@@ -287,8 +277,6 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
     ax.set_title(f"Figure 4: {clean_string(threat_key)} ({model_name} Outlook)", fontsize=16, fontweight='bold')
     ax.set_xlabel('Timeline', fontsize=12)
     ax.set_ylabel('Trend Intensity (Normalised)', fontsize=12)
-    
-    # Hard lock Y-Axis to prevent illogical negative numbers
     ax.set_ylim(bottom=0)
     
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
@@ -296,78 +284,53 @@ def plot_figure_4(model_name, threat_key, pats, preds, trues, conf, cols, dates,
     ax.grid(True, alpha=0.3)
     ax.axvspan(dates[f_start-1], dates[-1], color='#f0f0f0', alpha=0.5, label='Forecast Horizon')
     
-    # Retrieve existing handles and labels
     handles, labels = ax.get_legend_handles_labels()
     
-    # Add a unified patch for the 95% Confidence Interval (if B-MTGNN)
     if conf is not None:
         ci_patch = mpatches.Patch(color='mistyrose', alpha=0.7, label='95% Confidence Interval')
         handles.insert(1, ci_patch)
         labels.insert(1, '95% Confidence Interval')
     
-    # Format Legend Positioning
     if c_idx > 5:
         ax.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.02, 1), borderaxespad=0.)
     else:
         ax.legend(handles, labels, loc='upper left')
 
-    # Double-Save execution
     file_name = f"Fig4_{clean_string(threat_key).replace(' ', '_')}.png"
     double_save_figure(out_dir, file_name, show_inline=False, fig=fig)
     return True
 
 # --- Main Execution ---
 
-def generate_comparisons():
+def generate_comparisons(alpha=0.01):
     print("=" * 60)
-    print("--- Initiating Phase 5: Comparative Visualisation ---")
+    print(f"--- Initiating Phase 5: Comparative Visualisation (alpha={alpha}) ---")
     print("=" * 60)
 
-# 1. Load B-MTGNN Data
     try:
-        # Load dynamically tagged arrays using Paths.py variables
         b_preds = np.load(BMTGNN_PREDICTIONS).squeeze() 
         b_conf = np.load(BMTGNN_CONFIDENCE).squeeze()   
         b_hist = np.load(BMTGNN_HISTORY)           
-        
-        # Load the feature names generated by Forecast_Export (bypassing legacy CSV)
         b_names = np.load(BMTGNN_NAMES, allow_pickle=True).tolist()
-        
         print("Successfully loaded B-MTGNN arrays (123 Features).")
     except Exception as e:
         print(f"Failed to load B-MTGNN data: {e}")
         sys.exit(1)
 
-    # # 2. Load VisionPP Data
-    # try:
-    #     v_preds_raw = np.load(VISION_DIR / 'predictions.npy')
-    #     v_preds = v_preds_raw[-1] if v_preds_raw.ndim == 3 else v_preds_raw.squeeze()
-    #     v_names = np.load(VISION_DIR / 'feature_names.npy', allow_pickle=True)
-    #     print("Successfully loaded VisionPP arrays.")
-    # except Exception as e:
-    #     print(f"Failed to load VisionPP data: {e}")
-    #     sys.exit(1)
-
-    # 3. Set Timeline
     f_start = b_hist.shape[0] 
     f_horizon = b_preds.shape[0] 
     dates = generate_date_labels_forward(datetime(2011, 7, 1), f_start + f_horizon)
 
     print(f"\nGenerating plots for {len(THREAT_PAT_MAP)} Targets...")
-    b_count, v_count = 0, 0
+    b_count = 0
 
-    # 4. Generate Plots
     for threat, pats in THREAT_PAT_MAP.items():
-        if plot_figure_4("B-MTGNN", threat, pats, b_preds, b_hist, b_conf, b_names, dates, f_start, BMTGNN_OUT):
+        if plot_figure_4("B-MTGNN", threat, pats, b_preds, b_hist, b_conf, b_names, dates, f_start, BMTGNN_OUT, alpha=alpha):
             b_count += 1
-            
-        # if plot_figure_4("VisionTS++", threat, pats, v_preds, b_hist, None, v_names, dates, f_start, VISION_OUT):
-        #     v_count += 1
 
     print("\n" + "=" * 60)
     print("SUCCESS: Comparison Generation Complete!")
     print(f"Generated {b_count} plots for B-MTGNN in: {BMTGNN_OUT.name}/")
-    print(f"Generated {v_count} plots for VisionPP in: {VISION_OUT.name}/")
     print("=" * 60)
 
 if __name__ == "__main__":
