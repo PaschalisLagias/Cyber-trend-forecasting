@@ -162,7 +162,17 @@ DATASETS = {
             "force_vignette_features": True,
             "correlation_threshold": 0.7,
         },
+        
     },
+    "v2_2_full": {
+        "raw_relpath": "../../Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv",
+        "out_subdir": "v2_2_full",
+        "vignette": [], 
+        "defaults": {
+            "window_first": True,
+            "hybrid_selection": False,
+        },
+    }
 }
 
 
