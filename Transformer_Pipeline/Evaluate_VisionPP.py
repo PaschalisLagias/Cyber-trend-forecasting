@@ -272,7 +272,7 @@ def parse_args() -> argparse.Namespace:
         "--dataset",
         type=str,
         default="cyber_trend",
-        choices=["cyber_trend", "csis", "mark3", "v2_1"],
+        choices=["cyber_trend", "csis", "mark3", "v2_1", "v2_2_full"],
         help="Dataset to evaluate (default: cyber_trend). Drives input data dir and output Results subdir.",
     )
     parser.add_argument(
