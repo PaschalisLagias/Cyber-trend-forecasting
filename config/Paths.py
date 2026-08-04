@@ -85,3 +85,6 @@ VISION_GLOBAL_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Global"
 VISION_GAPS_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Gaps"
 VISION_FORECAST_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Forecast"
 VISION_OUTLOOK_DIR = COMPARISON_PLOTS_DIR / "VisionPP_Outlook"
+
+# Comparative Evaluation Table Path
+TABLE_9_IMG = COMPARISON_PLOTS_DIR / "Overall" / "Table_9_Comparative_Evaluation.png"
