@@ -1,8 +1,77 @@
-# Notebook Vignettes
+# Mark 3 Phase: Cyber Trend Forecasting
+
+This repository contains the data pipelines, model architectures, and evaluation dashboards for the Mark 3 phase of the cyber trend forecasting project. The objective is to forecast the volume of 26 target cyber threat vectors and their associated mitigation technologies.
+
+## 1. Executive Summary & Dataset Specifications
+
+The Mark 3 phase utilises an expanded and refined dataset. 
+
+* **Dataset Link:** [`Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv`](../Data_Preparation/Cyber_Trend_Forecasting_All_v2_2_sarimax.csv)
+* **Historical Observations:** 144 monthly steps (July 2011 to June 2023).
+* **Feature Columns:** 1,231 variables, encompassing threat events, defensive measures, and relevant macroeconomic indicators.
+
+The data is processed via two distinct methodologies for comparative analysis: a graph adjacency matrix for the B-MTGNN architecture and 2D image-space patch projections for the VisionTS++ architecture.
+
+## 2. Forecast Horizon & Methodology
+
+* **Forecast Window:** 36 months (January 2026 to December 2028).
+* **Smoothing Baseline:** An Exponential Moving Average ($\alpha = 0.05$) is uniformly applied to both models. This suppresses discrete step-variance and high-frequency noise inherent in graph-based models, whilst retaining the native magnitude scaling and wave dynamics of the vision-based outputs.
+
+---
+
+## 3. Results & Model Comparisons
+
+All visualisations are pre-computed and stored in the `Processed_Data/Comparison_Plots/` directory. They can be viewed interactively via the `Vignette_Model_Comparison.ipynb` dashboard.
+
+### 3.1 Global Evaluation Metrics (Table 9)
+
+The following table presents the overarching performance metrics calculated against the test set for both models, capturing the Relative Squared Error (RSE) and Relative Absolute Error (RAE) across the forecasting horizons.
+
+![Table 9 Comparative Evaluation](../Processed_Data/Comparison_Plots/Overall/Table_9_Comparative_Evaluation.png)
+
+### 3.2 Model Validation: Forecast Accuracy (Figure 3)
+
+These plots provide a breakdown of retrospective forecast accuracy, comparing the model predictions directly against the historical ground truth. 
+
+**Malware Validation**
+| B-MTGNN Model | Vision Model (VisionTS++) |
+| :---: | :---: |
+| ![B-MTGNN Malware Val](../Processed_Data/Comparison_Plots/BMTGNN_Forecast/Fig3_Malware.png) | ![Vision Malware Val](../Processed_Data/Comparison_Plots/VisionPP_Forecast/Fig3_Malware.png) |
+
+**Ransomware Validation**
+| B-MTGNN Model | Vision Model (VisionTS++) |
+| :---: | :---: |
+| ![B-MTGNN Ransomware Val](../Processed_Data/Comparison_Plots/BMTGNN_Forecast/Fig3_Ransomware.png) | ![Vision Ransomware Val](../Processed_Data/Comparison_Plots/VisionPP_Forecast/Fig3_Ransomware.png) |
+
+### 3.3 Continuous Trends Outlook (Figure 4)
+
+These visualisations present the 36-month continuous trend forecasts (2026–2028) for cyber threat vectors plotted alongside their associated mitigation technologies.
+
+**Malware Outlook**
+| B-MTGNN Model | Vision Model (VisionTS++) |
+| :---: | :---: |
+| ![B-MTGNN Malware Outlook](../Processed_Data/Comparison_Plots/BMTGNN_Outlook/Fig4_B-MTGNN_Malware.png) | ![Vision Malware Outlook](../Processed_Data/Comparison_Plots/VisionPP_Outlook/Fig4_VisionTS++_Malware.png) |
+
+**Ransomware Outlook**
+| B-MTGNN Model | Vision Model (VisionTS++) |
+| :---: | :---: |
+| ![B-MTGNN Ransomware Outlook](../Processed_Data/Comparison_Plots/BMTGNN_Outlook/Fig4_B-MTGNN_Ransomware.png) | ![Vision Ransomware Outlook](../Processed_Data/Comparison_Plots/VisionPP_Outlook/Fig4_VisionTS++_Ransomware.png) |
+
+### 3.4 Gap Analysis
+
+The gap analysis identifies specific intersections where the volume of attacks is projected to outpace the adoption or effectiveness of corresponding defensive measures (Widening Gaps), or where defensive measures are successfully closing the vulnerability window (Narrowing Gaps).
+
+| B-MTGNN Model | Vision Model (VisionTS++) |
+| :---: | :---: |
+| ![B-MTGNN Gap](../Processed_Data/Comparison_Plots/BMTGNN_Gaps/Overall_Widening.png) | ![Vision Gap](../Processed_Data/Comparison_Plots/VisionPP_Gaps/Overall_Widening.png) |
+
+---
+
+## 4. Pipeline Verification & Usage
 
 This directory contains Jupyter notebooks used for verifying pipeline logic, visualising data transformations, and interactively running the end-to-end model architectures. 
 
-## Setup & Usage
+### Setup & Usage
 
 * **Dependencies:** Ensure the full project requirements are installed, specifically `matplotlib`, `seaborn`, and `tqdm` for the visualisations.
 
@@ -17,11 +86,9 @@ This directory contains Jupyter notebooks used for verifying pipeline logic, vis
     ```
     *Note: The unified CLI wrapper is currently being updated for the Mark 3 dataset. For isolated execution, refer to the component scripts listed in the sections below.*
 
----
+### Pipeline Verification Notebooks
 
-## Pipeline Verification Notebooks
-
-### `BMTGNN_Pipeline_Verification.ipynb`
+#### `BMTGNN_Pipeline_Verification.ipynb`
 **Purpose:** The primary unit test for the B-MTGNN pipeline.
 **Key Functions:**
 * **Data Preprocessing:** Executes the data generation script to build the required text-based time-series arrays and the graph adjacency matrix.
@@ -32,7 +99,7 @@ This directory contains Jupyter notebooks used for verifying pipeline logic, vis
     python B-MTGNN/Prep_Unsmoothed_Data.py
     ```
 
-### `Vision_Pipeline_Verification.ipynb`
+#### `Vision_Pipeline_Verification.ipynb`
 **Purpose:** The primary test for the VisionTS++ pipeline.
 **Key Functions:**
 * **Data Verification:** Visualises the `CONTEXT_LEN` and `PRED_LEN` time axes to ensure historical data stitches into the forecast horizon.
@@ -43,11 +110,9 @@ This directory contains Jupyter notebooks used for verifying pipeline logic, vis
     python Transformer_Pipeline/Preprocessing/Cyber_Trend_to_Image.py
     ```
 
----
+### End-to-End Vignette Dashboards
 
-## End-to-End Vignette Dashboards
-
-### `Vignette_BMTGNN.ipynb`
+#### `Vignette_BMTGNN.ipynb`
 **Purpose:** The pipeline dashboard for the B-MTGNN model. Executes the full data ingestion, training, evaluation, and plotting workflow.
 **Key Functions:**
 * **Environment Switching:** Detects the runtime (Colab vs. Local) and handles drive mounting and dependencies.
@@ -57,7 +122,7 @@ This directory contains Jupyter notebooks used for verifying pipeline logic, vis
     python B-MTGNN/Prep_Unsmoothed_Data.py && python B-MTGNN/train.py --data data/sm_data.txt --epochs 50 --batch_size 16 && python B-MTGNN/Visualise_Comparison.py
     ```
 
-### `Vignette_VisionTS.ipynb`
+#### `Vignette_VisionTS.ipynb`
 **Purpose:** The pipeline dashboard for the VisionTS++ model. Executes the image-conversion Masked Autoencoder architecture workflow.
 **Key Functions:**
 * **Universal Setup:** Handles Colab/Local auto-detection and directory management.
@@ -70,34 +135,8 @@ This directory contains Jupyter notebooks used for verifying pipeline logic, vis
     python Transformer_Pipeline/Visualise_VisionPP_Results.py
     ```
 
-### `Vignette_Model_Comparison.ipynb`
+#### `Vignette_Model_Comparison.ipynb`
 **Purpose:** A dashboard built to load and display the output visualisations from both B-MTGNN and VisionTS++ side-by-side for direct evaluation of the Mark 3 dataset.
-
----
-
-## Key Results & Visualisations
-
-*Note: Output visualisations for the current dataset are saved directly to the `Processed_Data/Comparison_Plots/` directory.*
-
-### 1. Global Evaluation Metrics
-| B-MTGNN Model | Vision Model (VisionTS++) |
-| :---: | :---: |
-| *(Pending Generation)* | ![Vision Eval](../Processed_Data/Comparison_Plots/VisionPP_Global/Vision_Eval_Table.png) |
-
-### 2. Gap Analysis: Top Widening Risks
-| B-MTGNN Model | Vision Model (VisionTS++) |
-| :---: | :---: |
-| *(Pending Generation)* | ![Vision Gap](../Processed_Data/Comparison_Plots/VisionPP_Gaps/Overall_Widening.png) |
-
-### 3. Forecast Accuracy
-| B-MTGNN Model | Vision Model (VisionTS++) |
-| :---: | :---: |
-| *(Pending Generation)* | ![Vision Password](../Processed_Data/Comparison_Plots/VisionPP_Forecast/Fig3_Password.png) |
-
-### 4. Continuous Trends: Malware Forecast
-| B-MTGNN Model | Vision Model (VisionTS++) |
-| :---: | :---: |
-| ![Graph Malware](../Processed_Data/Comparison_Plots/BMTGNN_Outlook/Fig4_Malware.png) | ![Vision Malware](../Processed_Data/Comparison_Plots/VisionPP_Outlook/Fig4_Malware.png) |
 
 ---
 
