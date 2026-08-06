@@ -23,11 +23,11 @@
 /Processed_Data/vision/*
 /Processed_Data/visionpp/*
 /Processed_Data/B-MTGNN/*
-/Processed_Data/Comparison_Plots/*
-# BUT, do NOT ignore the .gitkeep files 
-# These will maintain the folder structure
-!/Processed_Data/graph/.gitkeep
-!/Processed_Data/vision/.gitkeep
+# /Processed_Data/Comparison_Plots/*
+# # BUT, do NOT ignore the .gitkeep files 
+# # These will maintain the folder structure
+# !/Processed_Data/graph/.gitkeep
+# !/Processed_Data/vision/.gitkeep
 
 # Results 
 # Ignore all raw tensors and root files inside Results
