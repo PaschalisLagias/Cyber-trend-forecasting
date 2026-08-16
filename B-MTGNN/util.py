@@ -19,6 +19,10 @@ class DataLoaderS(object):
         self.h = horizon
         fin = open(file_name)
         self.rawdat = np.loadtxt(fin, delimiter='\t')
+        
+        # FIX: Intercept Pandas-generated NaNs and convert to 0.0 before they poison the tensors
+        self.rawdat = np.nan_to_num(self.rawdat, nan=0.0)
+        
         self.shift=0
         self.min_data=np.min(self.rawdat)
         if(self.min_data<0):
@@ -60,8 +64,13 @@ class DataLoaderS(object):
         # normlized by the maximum value of each row(sensor).
         if (normalize == 2):
             for i in range(self.m):
-                self.scale[i] = np.max(np.abs(self.rawdat[:, i]))
-                self.dat[:, i] = self.rawdat[:, i] / np.max(np.abs(self.rawdat[:, i]))
+                max_val = np.max(np.abs(self.rawdat[:, i]))
+                if max_val == 0.0:
+                    self.scale[i] = 1.0  # FIX: Prevent 0.0 / 0.0 float division
+                    self.dat[:, i] = self.rawdat[:, i]
+                else:
+                    self.scale[i] = max_val
+                    self.dat[:, i] = self.rawdat[:, i] / max_val
                            
 
     def _split(self, train, valid, test):
@@ -151,10 +160,12 @@ class DataLoaderS(object):
                         adj[i][j]=1
                         adj[j][i]=1
         
+        # FIX: Add self-loops (Identity Matrix) to prevent division by zero in Graph Convolutions
+        adj = adj + torch.eye(len(col))
+        
         print('Adjacency created...')
 
         return adj
-
     #by Zaid et al.
     # returns set of column names within dataset  
     def create_columns(self):
