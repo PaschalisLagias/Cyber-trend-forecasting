@@ -19,8 +19,7 @@ import torch.nn as nn
 
 # Custom scripts
 from net import gtnet
-# from util import * # TODO: Point to the patched, NaN-scrubbed data loader
-from util import DataLoaderS
+from util import DataLoaderS  # TODO: Point to patched, NaN-scrubbed data loader
 from trainer import Optim
 
 plt.rcParams['savefig.dpi'] = 1200
