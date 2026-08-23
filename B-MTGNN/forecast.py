@@ -36,7 +36,7 @@ def consistent_name(name):
     if 'HIDDEN MARKOV MODEL' in name:
         return 'Statistical HMM'
 
-    if name == 'CAPTCHA' or name == 'DNSSEC' or name == 'RRAM':
+    if name in {'CAPTCHA', 'DNSSEC', 'RRAM'}:
         return name
 
     if 'IZ' in name:
@@ -65,7 +65,7 @@ def consistent_name(name):
     words = name.split(' ')
     result = ''
     for i, word in enumerate(words):
-        if len(word) <= 3 or '/' in word or word == 'MITM' or word == 'SIEM':
+        if len(word) <= 3 or '/' in word or word in {'MITM', 'SIEM'}:
             result += word
         else:
             result += word[0] + (word[1:].lower())
