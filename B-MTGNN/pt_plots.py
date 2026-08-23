@@ -1,15 +1,18 @@
-import pickle
-import numpy as np
-import os
-import scipy.sparse as sp
-import torch
-from scipy.sparse import linalg
-from torch.autograd import Variable
-import sys
+# import sys
+# import os
+# import pickle
+# import random
 import csv
 from collections import defaultdict
+
+import numpy as np
 from matplotlib import pyplot
-import random
+
+# import scipy.sparse as sp
+# from scipy.sparse import linalg
+
+import torch
+# from torch.autograd import Variable
 
 pyplot.rcParams['savefig.dpi'] = 1200
 
