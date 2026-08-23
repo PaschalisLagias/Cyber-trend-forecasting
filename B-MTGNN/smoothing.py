@@ -30,7 +30,7 @@ def double_exponential_smoothing(series, alpha, beta):
     for n in range(1, len(series)+1):
         if n == 1:
             level, trend = series[0], series[1] - series[0]
-        if n >= len(series): # forecasting
+        if n >= len(series):  # forecasting
             value = result[-1]
         else:
             value = series[n]

@@ -355,7 +355,8 @@ def load_dataset(
 
     # Data format
     for category in ['train', 'val', 'test']:
-        data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
+        data['x_' + category][..., 0] = \
+            scaler.transform(data['x_' + category][..., 0])
 
     data['train_loader'] = DataLoaderM(
         data['x_train'], data['y_train'], batch_size
