@@ -3,8 +3,8 @@ import math
 import time
 import random
 from random import randrange
-import sys
-import importlib
+# import sys
+# import importlib
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -14,7 +14,6 @@ import torch.nn as nn
 # Custom scripts
 from net import gtnet
 from util import DataLoaderS
-# from util import *
 from trainer import Optim
 
 plt.rcParams['savefig.dpi'] = 1200
