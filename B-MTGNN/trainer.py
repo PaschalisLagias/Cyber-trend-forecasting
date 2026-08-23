@@ -1,9 +1,11 @@
-import torch
-import torch.optim as optim
 # import math
 
+import torch
+import torch.optim as optim
+
+# Custom scripts
 import util
-# from net import *
+# import net
 
 
 class Trainer():
