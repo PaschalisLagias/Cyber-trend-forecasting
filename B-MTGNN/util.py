@@ -5,7 +5,6 @@ import scipy.sparse as sp
 import torch
 from scipy.sparse import linalg
 from torch.autograd import Variable
-import sys
 import csv
 from collections import defaultdict
 
@@ -198,7 +197,7 @@ class DataLoaderS(object):
     def create_columns(self):
         file_name = 'data/data.csv'
         if self.m == 123:  # no external features
-            file_name='data/sm_data_g.csv'
+            file_name ='data/sm_data_g.csv'
 
         # Read the CSV file of the dataset
         with open(file_name, 'r') as f:
@@ -404,7 +403,7 @@ def masked_mse(preds, labels, null_val=np.nan):
     else:
         mask = (labels != null_val)
     mask = mask.float()
-    mask /= torch.mean((mask))
+    mask /= torch.mean(mask)
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
 
     loss = (preds - labels)**2
@@ -423,7 +422,7 @@ def masked_mae(preds, labels, null_val=np.nan):
     else:
         mask = (labels != null_val)
     mask = mask.float()
-    mask /= torch.mean((mask))
+    mask /= torch.mean(mask)
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
     loss = torch.abs(preds-labels)
     loss = loss * mask
@@ -437,7 +436,7 @@ def masked_mape(preds, labels, null_val=np.nan):
     else:
         mask = (labels != null_val)
     mask = mask.float()
-    mask /= torch.mean((mask))
+    mask /= torch.mean(mask)
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
     loss = torch.abs(preds-labels)/labels
     loss = loss * mask
