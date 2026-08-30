@@ -213,7 +213,7 @@ class gtnet(nn.Module):
         assert seq_len == self.seq_length, msg
 
         if self.seq_length < self.receptive_field:
-            input = nn.functional.pad(
+            input_ = nn.functional.pad(
                 input_,
                 (self.receptive_field - self.seq_length, 0, 0, 0)
             )
