@@ -6,6 +6,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
 # custom script imports
 from layer import dilated_inception, graph_constructor, mixprop, LayerNorm
@@ -13,38 +14,65 @@ from layer import dilated_inception, graph_constructor, mixprop, LayerNorm
 SEED = 123
 
 
-class gtnet(nn.Module):
+class GTNet(nn.Module):
     def __init__(
         self,
-        gcn_true,
-        buildA_true,
-        gcn_depth,
-        num_nodes,
-        device,
-        predefined_A=None,
-        static_feat=None,
-        dropout=0.3,
-        subgraph_size=20,
-        node_dim=40,
-        dilation_exponential=1,
-        conv_channels=32,
-        residual_channels=32,
-        skip_channels=64,
-        end_channels=128,
-        seq_length=12,
-        in_dim=2,
-        out_dim=12,
-        layers=3,
-        propalpha=0.05,
-        tanhalpha=3,
-        layer_norm_affline=True
+        gcn_true: bool,
+        build_adp: bool,
+        gcn_depth: int,
+        num_nodes: int,
+        device: torch.device,
+        predefined_adp: Optional[torch.Tensor] = None,
+        static_feat: Optional[torch.Tensor] = None,
+        dropout: float = 0.3,
+        subgraph_size: int = 20,
+        node_dim: int = 40,
+        dilation_exponential: int = 1,
+        conv_channels: int = 32,
+        residual_channels: int = 32,
+        skip_channels: int = 64,
+        end_channels: int = 128,
+        seq_length: int = 12,
+        in_dim: int = 2,
+        out_dim: int = 12,
+        layers: int = 3,
+        propalpha: float = 0.05,
+        tanhalpha: float = 3,
+        layer_norm_affline: bool = True
     ):
-        super(gtnet, self).__init__()
+        """
+        Init the GTNet model.
+
+        :param gcn_true: Whether to use GCN layers.
+        :param build_adp: Whether to build an adaptive adjacency matrix.
+        :param gcn_depth: Depth of the GCN layers.
+        :param num_nodes: Number of nodes in the graph.
+        :param device: The device (CPU or GPU) to run the model on.
+        :param predefined_adp: Default adjacency matrix if build_adp is False.
+        :param static_feat: Static node features. Defaults to None.
+        :param dropout: Dropout rate. Defaults to 0.3.
+        :param subgraph_size: Size of the subgraph for graph construction.
+        :param node_dim: Dimension of node embeddings.
+        :param dilation_exponential: Dilation factor for dilated convolutions.
+        :param conv_channels: Number of channels for convolutional layers.
+        :param residual_channels: Number of residual channels.
+        :param skip_channels: Number of skip connection channels.
+        :param end_channels: Number of channels for the output layers.
+        :param seq_length: Length of the input sequence.
+        :param in_dim: Input feature dimension.
+        :param out_dim: Output dimension.
+        :param layers: Number of GTNet layers.
+        :param propalpha: Alpha parameter for mixprop layer.
+        :param tanhalpha: Alpha parameter for tanh activation in
+        graph constructor.
+        layer_norm_affline: Whether to use affine transformation in LayerNorm.
+        """
+        super(GTNet, self).__init__()
         self.gcn_true = gcn_true
-        self.buildA_true = buildA_true
+        self.build_adp = build_adp
         self.num_nodes = num_nodes
         self.dropout = dropout
-        self.predefined_A = predefined_A
+        self.predefined_adp = predefined_adp
         self.filter_convs = nn.ModuleList()
         self.gate_convs = nn.ModuleList()
         self.residual_convs = nn.ModuleList()
@@ -157,7 +185,7 @@ class gtnet(nn.Module):
                 else:
                     self.norm.append(
                         LayerNorm(
-                            (residual_channels,num_nodes,
+                            (residual_channels, num_nodes,
                              self.receptive_field - rf_size_j + 1),
                             elementwise_affine=layer_norm_affline))
 
@@ -204,8 +232,8 @@ class gtnet(nn.Module):
 
     def forward(self, input_, idx=None):
         seq_len = input_.size(3)
-        check_msg = 'input sequence length not equal to preset sequence length'
-        assert seq_len == self.seq_length, check_msg
+        msg = 'input sequence length not equal to preset sequence length'
+        assert seq_len == self.seq_length, msg
 
         if self.seq_length < self.receptive_field:
             input_ = nn.functional.pad(
@@ -214,7 +242,7 @@ class gtnet(nn.Module):
             )
 
         if self.gcn_true:
-            if self.buildA_true:
+            if self.build_adp:
                 if idx is None:
 
                     # this line computes the adjacency matrix adaptively
@@ -223,7 +251,7 @@ class gtnet(nn.Module):
                 else:
                     adp = self.gc(idx)
             else:
-                adp = self.predefined_A
+                adp = self.predefined_adp
         
         # print('Forward...')
         # time.sleep(1)
@@ -252,11 +280,11 @@ class gtnet(nn.Module):
 
         for i in range(self.layers):
             residual = x
-            filter = self.filter_convs[i](x)
-            filter = torch.tanh(filter)
+            filter_ = self.filter_convs[i](x)
+            filter_ = torch.tanh(filter_)
             gate = self.gate_convs[i](x)
             gate = torch.sigmoid(gate)
-            x = filter * gate
+            x = filter_ * gate
             x = F.dropout(x, self.dropout, training=self.training) 
                     
             s = x
