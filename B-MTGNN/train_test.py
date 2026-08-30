@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 # Custom scripts
-from net import gtnet
+from net import GTNet
 from util import DataLoaderS
 from trainer import Optim
 
@@ -22,8 +22,9 @@ plt.rcParams['savefig.dpi'] = 1200
 def inverse_diff_2d(output, I, shift):
     output[0, :] = torch.exp(output[0, :] + torch.log(I + shift)) - shift
     for i in range(1, output.shape[0]):
-        output[i, :] = torch.exp(output[i, :] + \
-                                 torch.log(output[i-1, :] + shift)) - shift
+        output[i, :] = torch.exp(
+            output[i, :] + torch.log(output[i-1, :] + shift)
+        ) - shift
     return output
 
 
@@ -38,14 +39,14 @@ def inverse_diff_3d(output, I, shift):
 
 def plot_data(data, title):
     x = range(1, len(data) + 1)
-    plt.plot(x,data, 'b-', label='Actual')
+    plt.plot(x, data, 'b-', label='Actual')
     plt.legend(loc="best", prop={'size': 11})
     plt.axis('tight')
     plt.grid(True)
     plt.title(title, y=1.03, fontsize=18)
     plt.ylabel("Trend", fontsize=15)
     plt.xlabel("Month", fontsize=15)
-    locs, labs = plt.xticks() 
+    locs, labs = plt.xticks()
     plt.xticks(rotation='vertical', fontsize=13)
     plt.yticks(fontsize=13)
     fig = plt.gcf()
@@ -84,7 +85,7 @@ def consistent_name(name):
     return result
 
 
-def save_metrics_1d(predict, test, title, type):
+def save_metrics_1d(predict, test, title, type_):
     """
     Compute and save validation / testing error to a text file given a s
     ingle node's prediction and actual curve values
@@ -115,26 +116,26 @@ def save_metrics_1d(predict, test, title, type):
     # Relative Absolute Error RAE - denominator
     # Prevent zero division
     sum_absolute_r = torch.sum(torch.abs(diff_r)) + 1e-5
-    
+
     # Relative Absolute Error RAE
     rae = sum_absolute_diff / sum_absolute_r
     rae = rae.item()
 
     title = title.replace('/', '_')
-    txt_path = 'model/Bayesian/' + type + '/' + title + '_' + type + '.txt'
+    txt_path = 'model/Bayesian/' + type_ + '/' + title + '_' + type_ + '.txt'
     with open(txt_path, "w") as f:
-      f.write('rse:' + str(rrse) + '\n')
-      f.write('rae:' + str(rae) + '\n')
-      f.close()
+        f.write('rse:' + str(rrse) + '\n')
+        f.write('rae:' + str(rae) + '\n')
+        f.close()
 
 
 def plot_predicted_actual(
     predicted, actual, title,
-    type, variance, confidence_95
+    type_, variance, confidence_95
 ):
     """
     Plot predicted curve with the actual curve.
-    The x axis can be adjusted as needed
+    The x-axis can be adjusted as needed
     """
     # all months
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -148,9 +149,9 @@ def plot_predicted_actual(
             M.append(month + '-' + str(year))
     M2 = []
     p = []
-    
+
     # last 3 years
-    if type == 'Testing':
+    if type_ == 'Testing':
         M = M[-len(predicted):]
         for index, value in enumerate(M):
             if any([
@@ -161,7 +162,7 @@ def plot_predicted_actual(
             ]):
                 M2.append(M[index])
                 p.append(index + 1)
-    
+
     else: # Validation x axis: Oct-16 to Sep-19
         M = M[63:99]
         for index, value in enumerate(M):
@@ -175,7 +176,7 @@ def plot_predicted_actual(
                 p.append(index + 1)
 
     x = range(1, len(predicted) + 1)
-    plt.plot(x, actual, 'b-', label = 'Actual')
+    plt.plot(x, actual, 'b-', label='Actual')
     plt.plot(x, predicted, '--', color='purple', label='Predicted')
 
     # Plot the confidence interval as a shaded region
@@ -192,7 +193,7 @@ def plot_predicted_actual(
     plt.ylabel("Trend", fontsize=15)
     plt.xlabel("Month", fontsize=15)
 
-    locs, labs = plt.xticks() 
+    locs, labs = plt.xticks()
     plt.xticks(ticks=p, labels=M2, rotation='vertical', fontsize=13)
     plt.yticks(fontsize=13)
     fig = plt.gcf()
@@ -200,11 +201,11 @@ def plot_predicted_actual(
     title = title.replace('/', '_')
 
     # PNG image
-    png_path = 'model/Bayesian/' + type + '/' + title + '_' + type + '.png'
+    png_path = 'model/Bayesian/' + type_ + '/' + title + '_' + type_ + '.png'
     plt.savefig(png_path, bbox_inches="tight")
 
     # PDF image
-    pdf_path = 'model/Bayesian/' + type + '/' + title + '_' + type + ".pdf"
+    pdf_path = 'model/Bayesian/' + type_ + '/' + title + '_' + type_ + ".pdf"
     plt.savefig(pdf_path, bbox_inches="tight", format='pdf')
 
     plt.show(block=False)
@@ -216,7 +217,7 @@ def s_mape(y_true, y_pred):
     """
     Symmetric mean absolute percentage error (optional)
     """
-    mape=0
+    mape = 0
     for i in range(len(y_true)):
         # Added 1e-5 epsilon to denominator to prevent division by zero
         eps = 1e-5
@@ -234,10 +235,10 @@ def s_mape(y_true, y_pred):
 # In our case, the window was not slided (we predicted 36 months and the model
 # by default predicts 36 months)
 def evaluate_sliding_window(
-    data, test_window, model, evaluateL2,
-    evaluateL1, n_input, is_plot
+    data, test_window, model, evaluate_l2,
+    evaluate_l1, n_input, is_plot
 ):
-    # model.eval()# To get Bayesian estimation, we must comment out this line
+    # model.eval()  # To get Bayesian estimation, we must comment out this line
 
     # FIX: Push the raw test window to the GPU so all derived
     # ground-truth tensors inherit the device
@@ -260,7 +261,7 @@ def evaluate_sliding_window(
     # scale will have the max of each column (142 max values)
     scale = data.scale.expand(test_window.size(0), data.m)
     print('Test Window Feature:', test_window[:, r])
-    
+
     x_input = test_window[0:n_input, :].clone()  # Generate input sequence
 
     for i in range(n_input, test_window.shape[0],data.out_len):
@@ -272,10 +273,10 @@ def evaluate_sliding_window(
         X = torch.unsqueeze(x_input, dim=0)
         X = torch.unsqueeze(X, dim=1)
         X = X.transpose(2, 3)
-        
+
         # TODO: Push the manual sliding window tensor to the GPU
         X = X.to(torch.float).to(data.device)
-        y_true = test_window[i: i+data.out_len,:].clone()
+        y_true = test_window[i: i+data.out_len, :].clone()
 
         # Bayesian estimation
         num_runs = 10
@@ -286,12 +287,12 @@ def evaluate_sliding_window(
         # Use model to predict next time step
         for _ in range(num_runs):
             with torch.no_grad():
-                output = model(X)  
+                output = model(X)
                 y_pred = output[-1, :, :, -1].clone()
 
-                # if this is the last predicted window and it
+                # if this is the last predicted window and, it
                 # exceeds the test window range
-                if y_pred.shape[0]>y_true.shape[0]:
+                if y_pred.shape[0] > y_true.shape[0]:
                     y_pred = y_pred[:-(y_pred.shape[0] - y_true.shape[0]), ]
             outputs.append(y_pred)
 
@@ -360,7 +361,7 @@ def evaluate_sliding_window(
 
     # Root Relative Squared Error RRSE according to Lai et.al - numerator
     root_sum_squared = math.sqrt(sum_squared_diff)  # numerator
-    
+
     # Root Relative Squared Error RRSE according to Lai et.al - denominator
     test_s = test
 
@@ -385,22 +386,22 @@ def evaluate_sliding_window(
     sum_absolute_r = torch.sum(torch.abs(diff_r)) + 1e-5
 
     # Relative Absolute Error RAE
-    rae = sum_absolute_diff / sum_absolute_r 
+    rae = sum_absolute_diff / sum_absolute_r
     rae = rae.item()
 ################################################################################
 
     predict = predict.data.cpu().numpy()
-    Ytest = test.data.cpu().numpy()
+    y_test = test.data.cpu().numpy()
 
     sigma_p = predict.std(axis=0)
-    sigma_g = (Ytest).std(axis=0)
+    sigma_g = y_test.std(axis=0)
 
     mean_p = predict.mean(axis=0)
-    mean_g = Ytest.mean(axis=0)
+    mean_g = y_test.mean(axis=0)
 
     index = (sigma_g != 0)
     correlation = (
-        ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0)
+        ((predict - mean_p) * (y_test - mean_g)).mean(axis=0)
         / (sigma_p * sigma_g + 1e-5)
     )
 
@@ -408,9 +409,9 @@ def evaluate_sliding_window(
 
     # s-mape
     smape = 0
-    for z in range(Ytest.shape[1]):
-        smape += s_mape(Ytest[:, z], predict[:, z])
-    smape /= Ytest.shape[1]
+    for z in range(y_test.shape[1]):
+        smape += s_mape(y_test[:, z], predict[:, z])
+    smape /= y_test.shape[1]
 
     # plot predicted vs actual and save errors to file
     counter = 0
@@ -418,21 +419,19 @@ def evaluate_sliding_window(
         for v in range(r, r+142):
             col = v % data.m
 
-            node_name = (
-                DataLoaderS.col[col]
-                    .replace('-ALL', '')
-                    .replace('Mentions-', 'Mentions of ')
-                    .replace(' ALL', '')
-                    .replace('Solution_', '')
-                    .replace('_Mentions', '')
-            )
+            node_name = DataLoaderS.col[col] \
+                .replace('-ALL', '') \
+                .replace('Mentions-', 'Mentions of ') \
+                .replace(' ALL', '') \
+                .replace('Solution_', '') \
+                .replace('_Mentions', '')
 
             node_name = consistent_name(node_name)
-            
+
             # Save error to file
             save_metrics_1d(
                 torch.from_numpy(predict[:, col]),
-                torch.from_numpy(Ytest[:, col]),
+                torch.from_numpy(y_test[:, col]),
                 node_name,
                 'Testing'
             )
@@ -440,7 +439,7 @@ def evaluate_sliding_window(
             # plot
             plot_predicted_actual(
                 predict[:, col],
-                Ytest[:, col],
+                y_test[:, col],
                 node_name,
                 'Testing',
                 variance[:, col],
@@ -448,10 +447,10 @@ def evaluate_sliding_window(
             )
 
             counter += 1
-    return rrse,rae,correlation, smape
+    return rrse, rae, correlation, smape
 
 
-def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
+def evaluate(data, X, Y, model, evaluate_l2, evaluate_l1, batch_size, is_plot):
     # To get Bayesian estimation, we must comment out this line
     # model.eval()
 
@@ -465,7 +464,7 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
     sum_squared_diff = 0
     sum_absolute_diff = 0
     r = 0  # we choose any node index for printing (debugging)
-    print('validation r=',str(r))
+    print('validation r=', str(r))
 
     for X, Y in data.get_batches(X, Y, batch_size, False):
         X = torch.unsqueeze(X, dim=1)
@@ -502,7 +501,7 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
 
         # scale will have the max of each column (142 max values)
         scale = data.scale.expand(Y.size(0), Y.size(1), data.m)
-        
+
         # inverse normalisation
         output *= scale
         Y *= scale
@@ -528,10 +527,10 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
         y_true_o = Y
 
         for z in range(Y.shape[1]):
-            print(y_pred_o[0, z, r] ,y_true_o[0, z, r])  # only one col
-        
-        total_loss += evaluateL2(output, Y).item()
-        total_loss_l1 += evaluateL1(output, Y).item()
+            print(y_pred_o[0, z, r], y_true_o[0, z, r])  # only one col
+
+        total_loss += evaluate_l2(output, Y).item()
+        total_loss_l1 += evaluate_l1(output, Y).item()
         n_samples += (output.size(0) * output.size(1) * data.m)
 
         # RRSE according to Lai et.al
@@ -541,12 +540,12 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
         sum_absolute_diff += torch.sum(torch.abs(Y - output))
 
     # The below 2 lines are not used
-    rse = math.sqrt(total_loss / n_samples) / data.rse 
-    rae = (total_loss_l1 / n_samples) / data.rae 
+    rse = math.sqrt(total_loss / n_samples) / data.rse
+    rae = (total_loss_l1 / n_samples) / data.rae
 
     # RRSE according to Lai et.al - numerator
     root_sum_squared = math.sqrt(sum_squared_diff)  # numerator
-    
+
     # RRSE according to Lai et.al - denominator
     test_s = test
 
@@ -572,17 +571,17 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
     rae = rae.item()
 
     predict = predict.data.cpu().numpy()
-    Ytest = test.data.cpu().numpy()
+    y_test = test.data.cpu().numpy()
 
     sigma_p = predict.std(axis=0)
-    sigma_g = Ytest.std(axis=0)
+    sigma_g = y_test.std(axis=0)
 
     mean_p = predict.mean(axis=0)
-    mean_g = Ytest.mean(axis=0)
+    mean_g = y_test.mean(axis=0)
 
     index = (sigma_g != 0)
     correlation = (
-        ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0)
+        ((predict - mean_p) * (y_test - mean_g)).mean(axis=0)
         / (sigma_p * sigma_g + 1e-5)
     )
 
@@ -590,36 +589,34 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size, is_plot):
 
     # s-mape
     smape = 0
-    for x in range(Ytest.shape[0]):
-        for z in range(Ytest.shape[2]):
-            smape += s_mape(Ytest[x, :, z],predict[x, :, z])
-    smape /= Ytest.shape[0] * Ytest.shape[2]
+    for x in range(y_test.shape[0]):
+        for z in range(y_test.shape[2]):
+            smape += s_mape(y_test[x, :, z],predict[x, :, z])
+    smape /= y_test.shape[0] * y_test.shape[2]
 
     # plot actual vs predicted curves and save errors to file
     counter = 0
     if is_plot:
         for v in range(r, r + 142):
             col = v % data.m
-            node_name = (
-                DataLoaderS.col[col]
-                    .replace('-ALL', '')
-                    .replace('Mentions-', 'Mentions of ')
-                    .replace(' ALL', '')
-                    .replace('Solution_', '')
-                    .replace('_Mentions', '')
-            )
+            node_name = DataLoaderS.col[col] \
+                .replace('-ALL', '') \
+                .replace('Mentions-', 'Mentions of ') \
+                .replace(' ALL', '') \
+                .replace('Solution_', '') \
+                .replace('_Mentions', '')
 
             node_name = consistent_name(node_name)
             save_metrics_1d(
                 torch.from_numpy(predict[-1, :, col]),
-                torch.from_numpy(Ytest[-1, :, col]),
+                torch.from_numpy(y_test[-1, :, col]),
                 node_name,
                 'Validation'
             )
 
             plot_predicted_actual(
                 predict[-1, :, col],
-                Ytest[-1, :, col],
+                y_test[-1, :, col],
                 node_name,
                 'Validation',
                 variance[-1, :, col],
@@ -634,50 +631,50 @@ def train(data, X, Y, model, criterion, optim, batch_size):
     model.train()
     total_loss = 0
     n_samples = 0
-    iter = 0
+    iteration = 0
 
     for X, Y in data.get_batches(X, Y, batch_size, True):
         model.zero_grad()
         X = torch.unsqueeze(X, dim=1)
         X = X.transpose(2, 3)
-        if iter % args.step_size == 0:
+        if iteration % args.step_size == 0:
             perm = np.random.permutation(range(args.num_nodes))
         num_sub = int(args.num_nodes / args.num_split)
 
         for j in range(args.num_split):
             if j != args.num_split - 1:
-                id = perm[j * num_sub:(j + 1) * num_sub]
+                id_ = perm[j * num_sub:(j + 1) * num_sub]
             else:
-                id = perm[j * num_sub:]
+                id_ = perm[j * num_sub:]
 
-            id = torch.tensor(id).to(device)
-            tx = X[:, :, :, :] 
-            ty = Y[:, :, :] 
+            id_ = torch.tensor(id_).to(device)
+            tx = X[:, :, :, :]
+            ty = Y[:, :, :]
             output = model(tx)
             # -- end --
 
             output = torch.squeeze(output, 3)
             scale = data.scale.expand(output.size(0), output.size(1), data.m)
             scale = scale[:, :, :]
-            
+
             # Calculate loss on normalised bounds to prevent
             # float32 gradient explosion
             loss = criterion(output, ty)
             loss.backward()
 
             # Scale back up for accurate error logging in the console
-            output = output * scale 
+            output = output * scale
             ty = ty * scale
             total_loss += loss.item()
             n_samples += (output.size(0) * output.size(1) * data.m)
-            
+
             grad_norm = optim.step()
 
-        if iter % 1 == 0:
+        if iteration % 1 == 0:
             loss_ = loss.item() / (output.size(0) * output.size(1) * data.m)
-            print('iter:{:3d} | loss: {:.3f}'.format( iter, loss_))
+            print('iteration:{:3d} | loss: {:.3f}'.format( iteration, loss_))
 
-        iter += 1
+        iteration += 1
     return total_loss / n_samples
 
 
@@ -694,7 +691,7 @@ parser.add_argument('--normalize', type=int, default=2)
 parser.add_argument('--device', type=str, default='cuda:1', help='')
 parser.add_argument('--gcn_true', type=bool, default=True,
                     help='whether to add graph convolution layer')
-parser.add_argument('--buildA_true', type=bool, default=True,
+parser.add_argument('--build_adp', type=bool, default=True,
                     help='whether to construct adaptive adjacency matrix')
 parser.add_argument('--gcn_depth', type=int, default=2,
                     help='graph convolution depth')
@@ -703,7 +700,7 @@ parser.add_argument('--num_nodes', type=int, default=142,
 parser.add_argument('--dropout', type=float, default=0.3,
                     help='dropout rate')
 parser.add_argument('--subgraph_size', type=int, default=20, help='k')
-parser.add_argument('--node_dim', type=int ,default=40 ,help='dim of nodes')
+parser.add_argument('--node_dim', type=int, default=40, help='dim of nodes')
 parser.add_argument('--dilation_exponential', type=int, default=2,
                     help='dilation exponential')
 parser.add_argument('--conv_channels', type=int, default=16,
@@ -718,7 +715,7 @@ parser.add_argument('--seq_in_len', type=int, default=10,
                     help='input sequence length')
 parser.add_argument('--seq_out_len', type=int, default=36,
                     help='output sequence length')
-parser.add_argument('--horizon', type=int, default=1) 
+parser.add_argument('--horizon', type=int, default=1)
 parser.add_argument('--layers', type=int, default=5, help='number of layers')
 
 parser.add_argument('--batch_size', type=int, default=8, help='batch size')
@@ -772,24 +769,24 @@ def main(experiment):
     dropouts = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     dilation_exs = [1, 2, 3]
     node_dims = [20, 30, 40, 50, 60, 70, 80, 90, 100]
-    prop_alphas = [0.05, 0.1,0.15,0.2,0.3,0.4,0.6,0.8]
+    prop_alphas = [0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.6, 0.8]
     tanh_alphas = [0.05, 0.1, 0.5, 1, 2, 3, 5, 7, 9]
 
     best_val = 10_000_000
-    best_rse =  10_000_000
-    best_rae =  10_000_000
+    best_rse = 10_000_000
+    best_rae = 10_000_000
     best_corr = -10_000_000
     best_smape = 10_000_000
-    
+
     best_test_rse = 10_000_000
-    best_test_corr =- 10_000_000
+    best_test_corr = -10_000_000
 
     best_hp = []
 
     # random search
     for q in range(60):
 
-    # for q in range(2):
+        # for q in range(2):
         # hps
         gcn_depth = gcn_depths[randrange(len(gcn_depths))]
         lr = lrs[randrange(len(lrs))]
@@ -807,7 +804,7 @@ def main(experiment):
 
         Data = DataLoaderS(
             args.data, 0.43, 0.30, device, args.horizon,
-            args.seq_in_len, args.normalize,args.seq_out_len
+            args.seq_in_len, args.normalize, args.seq_out_len
         )
 
         print('train X:', Data.train[0].shape)
@@ -823,44 +820,45 @@ def main(experiment):
         print('length of testing set=', Data.test[0].shape[0])
         print('valid=', int((0.43 + 0.3) * Data.n))
 
-        model = gtnet(
-            args.gcn_true, args.buildA_true, gcn_depth, args.num_nodes, device,
-            predefined_A=[Data.adj.to(device)], dropout=dropout, subgraph_size=k,
-            node_dim=node_dim, dilation_exponential=dilation_ex,
-            conv_channels=conv, residual_channels=res, skip_channels=skip,
-            end_channels= end, seq_length=args.seq_in_len, in_dim=args.in_dim,
+        model = GTNet(
+            args.gcn_true, args.build_adp, gcn_depth, args.num_nodes,
+            device, predefined_adp=[Data.adj.to(device)], dropout=dropout,
+            subgraph_size=k, node_dim=node_dim,
+            dilation_exponential=dilation_ex, conv_channels=conv,
+            residual_channels=res, skip_channels=skip, end_channels=end,
+            seq_length=args.seq_in_len, in_dim=args.in_dim,
             out_dim=args.seq_out_len, layers=layer, propalpha=prop_alpha,
             tanhalpha=tanh_alpha, layer_norm_affline=False
         )
-        
+
         # TODO: Push the model weights to the GPU
         model.to(device)
 
         print(args)
         print('The recpetive field size is', model.receptive_field)
-        nParams = sum([p.nelement() for p in model.parameters()])
-        print('Number of model parameters is', nParams, flush=True)
+        n_params = sum([p.nelement() for p in model.parameters()])
+        print('Number of model parameters is', n_params, flush=True)
 
         if args.L1Loss:
             criterion = nn.L1Loss(reduction='sum').to(device)
         else:
             criterion = nn.MSELoss(reduction='sum').to(device)
 
-        evaluateL2 = nn.MSELoss(reduction='sum').to(device)  # MSE
-        evaluateL1 = nn.L1Loss(reduction='sum').to(device)  # MAE
-        
+        evaluate_l2 = nn.MSELoss(reduction='sum').to(device)  # MSE
+        evaluate_l1 = nn.L1Loss(reduction='sum').to(device)  # MAE
+
         optim = Optim(
             list(model.parameters()), args.optim, lr,
             args.clip, lr_decay=args.weight_decay
         )
-        
+
         es_counter = 0  # early stopping
         # At any point you can hit Ctrl + C to break out of training early.
         try:
             print('begin training')
             for epoch in range(1, args.epochs + 1):
                 print('Experiment:', (experiment + 1))
-                print('Iter:', q)
+                print('iteration:', q)
                 print('epoch:', epoch)
                 print(
                     'hp=',
@@ -897,8 +895,8 @@ def main(experiment):
                     Data.valid[0],
                     Data.valid[1],
                     model,
-                    evaluateL2,
-                    evaluateL1,
+                    evaluate_l2,
+                    evaluate_l1,
                     args.batch_size,
                     False
                 )
@@ -943,11 +941,11 @@ def main(experiment):
                     ]
 
                     es_counter = 0
-                    
+
                     test_acc, test_rae, test_corr, test_smape = \
                         evaluate_sliding_window(
-                            Data, Data.test_window, model, evaluateL2,
-                            evaluateL1, args.seq_in_len, False
+                            Data, Data.test_window, model, evaluate_l2,
+                            evaluate_l1, args.seq_in_len, False
                         )
 
                     print('***************************************************')
@@ -975,7 +973,7 @@ def main(experiment):
     print('best val loss=', best_val)
     print('best hps=', best_hp)
 
-    # save best hp to desk
+    # Save the best hp to desk
     with open('model/Bayesian/hp.txt', "w") as f:
         f.write(str(best_hp))
         f.close()
@@ -992,13 +990,13 @@ def main(experiment):
     vtest_acc, vtest_rae, vtest_corr, vtest_smape =\
         evaluate(
             Data, Data.valid[0], Data.valid[1], model,
-            evaluateL2, evaluateL1, args.batch_size, False
+            evaluate_l2, evaluate_l1, args.batch_size, False
         )
 
     test_acc, test_rae, test_corr, test_smape =\
         evaluate_sliding_window(
-            Data, Data.test_window, model, evaluateL2,
-            evaluateL1, args.seq_in_len, False
+            Data, Data.test_window, model, evaluate_l2,
+            evaluate_l1, args.seq_in_len, False
         )
 
     print('*******************************************************************')
@@ -1022,34 +1020,38 @@ def main(experiment):
 
 
 if __name__ == "__main__":
-    vacc = []
-    vrae = []
-    vcorr = []
-    vsmape = []
-    acc = []
-    rae = []
-    corr = []
-    smape = []
-    for i in range(1):
+    vacc_list = []
+    vrae_list = []
+    vcorr_list = []
+    vsmape_list = []
+    acc_list = []
+    rae_list = []
+    corr_list = []
+    smape_list = []
+    for idx in range(1):
         val_acc, val_rae, val_corr, val_smape, \
-        test_acc, test_rae, test_corr, test_smape = main(i)
+        test_acc, test_rae, test_corr, test_smape = main(idx)
 
-        vacc.append(val_acc)
-        vrae.append(val_rae)
-        vcorr.append(val_corr)
-        vsmape.append(val_smape)
-        acc.append(test_acc)
-        rae.append(test_rae)
-        corr.append(test_corr)
-        smape.append(test_smape)
+        vacc_list.append(val_acc)
+        vrae_list.append(val_rae)
+        vcorr_list.append(val_corr)
+        vsmape_list.append(val_smape)
+        acc_list.append(test_acc)
+        rae_list.append(test_rae)
+        corr_list.append(test_corr)
+        smape_list.append(test_smape)
 
     print('\n\n')
     print('1 run average')
     print('\n\n')
     print("valid\trse\trae")
-    print("mean\t{:5.4f}\t{:5.4f}".format(np.mean(vacc), np.mean(vrae)))
-    print("std\t{:5.4f}\t{:5.4f}".format(np.std(vacc), np.std(vrae)))
+    print("mean\t{:5.4f}\t{:5.4f}".format(
+        np.mean(vacc_list),
+        np.mean(vrae_list))
+    )
+
+    print("std\t{:5.4f}\t{:5.4f}".format(np.std(vacc_list), np.std(vrae_list)))
     print('\n\n')
     print("test\trse\trae")
-    print("mean\t{:5.4f}\t{:5.4f}".format(np.mean(acc), np.mean(rae)))
-    print("std\t{:5.4f}\t{:5.4f}".format(np.std(acc), np.std(rae)))
+    print("mean\t{:5.4f}\t{:5.4f}".format(np.mean(acc_list), np.mean(rae_list)))
+    print("std\t{:5.4f}\t{:5.4f}".format(np.std(acc_list), np.std(rae_list)))
