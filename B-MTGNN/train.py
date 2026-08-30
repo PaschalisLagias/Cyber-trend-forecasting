@@ -1,6 +1,6 @@
 """
 This script trains the final model on the full data, utilising the optimal
-set of hyper-parameters found in the file train_test.
+set of hyperparameters found in the file train_test.
 """
 import ast
 import argparse
@@ -18,25 +18,25 @@ import torch
 import torch.nn as nn
 
 # Custom scripts
-from net import gtnet
+from net import GTNet
 from util import DataLoaderS  # TODO: Point to patched, NaN-scrubbed data loader
 from trainer import Optim
 
 plt.rcParams['savefig.dpi'] = 1200
 
 
-def train(data, X, Y, model, criterion, optim, batch_size):
-    model.train()
+def train(data, X, Y, train_model, loss_fn, optimizer, batch_size):
+    train_model.train()
     total_loss = 0
     n_samples = 0
-    iter = 0
+    iter_ = 0
 
     for X, Y in data.get_batches(X, Y, batch_size, True):
-        model.zero_grad()
+        train_model.zero_grad()
         X = torch.unsqueeze(X, dim=1)
         X = X.transpose(2, 3)
 
-        if iter % args.step_size == 0:
+        if iter_ % args.step_size == 0:
             perm = np.random.permutation(range(args.num_nodes))
 
         num_sub = int(args.num_nodes / args.num_split)
@@ -51,7 +51,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             tx = X[:, :, :, :] 
             ty = Y[:, :, :]
 
-            output = model(tx)         
+            output = train_model(tx)
             output = torch.squeeze(output, 3)
 
             scale = data.scale.expand(output.size(0), output.size(1), data.m)
@@ -59,7 +59,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             
             # TODO: Calculate loss on normalised bounds to prevent
             #  float32 gradient explosion
-            loss = criterion(output, ty)
+            loss = loss_fn(output, ty)
             loss.backward()
             
             # Scale back up for accurate error logging in the console
@@ -68,20 +68,20 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             total_loss += loss.item()
             n_samples += (output.size(0) * output.size(1) * data.m)
             
-            grad_norm = optim.step()
+            grad_norm = optimizer.step()
 
-        if iter % 1 == 0:
+        if iter_ % 1 == 0:
             loss_ = loss.item() / (output.size(0) * output.size(1) * data.m)
-            print(f"iter:{iter:3d} | loss: {loss_:.3f}")
-        iter += 1
+            print(f"iter:{iter_:3d} | loss: {loss_:.3f}")
+        iter_ += 1
     return total_loss / n_samples
 
 
-def evaluate(data, X, Y, model, criterion, batch_size):
+def evaluate(data, X, Y, eval_model, loss_fn, batch_size):
     """
     Evaluates the model on the provided data split without updating weights.
     """
-    model.eval()
+    eval_model.eval()
     total_loss = 0
     n_samples = 0
     
@@ -93,14 +93,14 @@ def evaluate(data, X, Y, model, criterion, batch_size):
             tx = X[:, :, :, :]
             ty = Y[:, :, :]
             
-            output = model(tx)
+            output = eval_model(tx)
             output = torch.squeeze(output, 3)
             
             scale = data.scale.expand(output.size(0), output.size(1), data.m)
             scale = scale[:, :, :]
             
             # Calculate validation loss on normalised bounds
-            loss = criterion(output, ty)
+            loss = loss_fn(output, ty)
             
             # Scale back up for accurate error logging
             output = output * scale
@@ -124,7 +124,7 @@ parser.add_argument('--normalize', type=int, default=2)
 parser.add_argument('--device', type=str, default='cuda:1', help='')
 parser.add_argument('--gcn_true', type=bool, default=True,
                     help='whether to add graph convolution layer')
-parser.add_argument('--buildA_true', type=bool, default=True,
+parser.add_argument('--build_adp', type=bool, default=True,
                     help='whether to construct adaptive adjacency matrix')
 parser.add_argument('--gcn_depth', type=int, default=2,
                     help='graph convolution depth')
@@ -176,10 +176,10 @@ def set_random_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-fixed_seed = 123
-set_random_seed(fixed_seed)
+SEED = 123
+set_random_seed(SEED)
 
-# Read hyper-parameters
+# Read hyperparameters
 filename = "model/Bayesian/hp.txt"
 with open(filename, 'r') as file:
     content = file.read()
@@ -211,11 +211,11 @@ Data = DataLoaderS(
     args.seq_in_len, args.normalize, args.seq_out_len
 )
 
-model = gtnet(
-    args.gcn_true, args.buildA_true, gcn_depth, args.num_nodes, device,
-    predefined_A=[Data.adj.to(device)], dropout=dropout, subgraph_size=k,
+model = GTNet(
+    args.gcn_true, args.build_adp, gcn_depth, args.num_nodes, device,
+    predefined_adp=[Data.adj.to(device)], dropout=dropout, subgraph_size=k,
     node_dim=node_dim, dilation_exponential=dilation_ex, conv_channels=conv,
-    residual_channels=res, skip_channels=skip, end_channels= end,
+    residual_channels=res, skip_channels=skip, end_channels=end,
     seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
     layers=layer, propalpha=prop_alpha, tanhalpha=tanh_alpha,
     layer_norm_affline=False
