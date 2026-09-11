@@ -6,7 +6,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
+from typing import List, Optional, Tuple, Union
+from matplotlib import pyplot
+import seaborn as sns
 
 # custom script imports
 from layer import dilated_inception, graph_constructor, mixprop, LayerNorm
@@ -68,6 +70,11 @@ class GTNet(nn.Module):
         layer_norm_affline: Whether to use affine transformation in LayerNorm.
         """
         super(GTNet, self).__init__()
+
+        # Init attention scores and adaptive adjacency matrix placeholders
+        self.attention_scores = None
+        self.adp = None
+
         self.gcn_true = gcn_true
         self.build_adp = build_adp
         self.num_nodes = num_nodes
@@ -90,6 +97,7 @@ class GTNet(nn.Module):
 
         self.seq_length = seq_length
         kernel_size = 7
+
         if dilation_exponential > 1:
             self.receptive_field = int(
                 1 + (kernel_size - 1) *
@@ -136,8 +144,7 @@ class GTNet(nn.Module):
                 self.residual_convs.append(
                     nn.Conv2d(
                         in_channels=conv_channels,
-                        out_channels=residual_channels,
-                        kernel_size=(1, 1)
+                        out_channels=residual_channels, kernel_size=(1, 1)
                     )
                 )
 
@@ -193,14 +200,12 @@ class GTNet(nn.Module):
 
         self.layers = layers
         self.end_conv_1 = nn.Conv2d(
-            in_channels=skip_channels,
-            out_channels=end_channels,
+            in_channels=skip_channels, out_channels=end_channels,
             kernel_size=(1, 1), bias=True
         )
 
         self.end_conv_2 = nn.Conv2d(
-            in_channels=end_channels,
-            out_channels=out_dim,
+            in_channels=end_channels, out_channels=out_dim,
             kernel_size=(1, 1), bias=True
         )
 
@@ -223,14 +228,17 @@ class GTNet(nn.Module):
             )
 
             self.skipE = nn.Conv2d(
-                in_channels=residual_channels,
-                out_channels=skip_channels,
+                in_channels=residual_channels, out_channels=skip_channels,
                 kernel_size=(1, 1), bias=True
             )
 
         self.idx = torch.arange(self.num_nodes).to(device)
 
-    def forward(self, input_, idx=None):
+    def forward(self, input_, idx=None, return_attention=False) -> Union[
+        torch.Tensor, 
+        Tuple[torch.Tensor, Optional[torch.Tensor]]
+    ]:
+        self.attention_scores = None
         seq_len = input_.size(3)
         msg = 'input sequence length not equal to preset sequence length'
         assert seq_len == self.seq_length, msg
@@ -291,8 +299,14 @@ class GTNet(nn.Module):
             s = self.skip_convs[i](s)
             skip = s + skip
             if self.gcn_true:
-                x = self.gconv1[i](x, adp) + \
-                    self.gconv2[i](x, adp.transpose(1, 0))
+                x1, attention_matrix1 = self.gconv1[i](x, adp)
+                x2, attention_matrix2 = self.gconv2[i](
+                    x, adp.transpose(1, 0)
+                )
+                x = x1 + x2
+                self.attention_scores = (
+                    attention_matrix1 + attention_matrix2
+                ) / 2
             else:
                 x = self.residual_convs[i](x)
 
@@ -306,4 +320,85 @@ class GTNet(nn.Module):
         x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(x)
+        if return_attention:
+            return x, self.attention_scores
         return x
+
+    def visualize_sample_attention_scores(self) -> None:
+        """
+        Plot the first ten nodes from the most recent forward pass.
+        """
+        if self.attention_scores is None:
+            msg = 'Run forward with return_attention=True before plotting.'
+            raise RuntimeError(msg)
+
+        attention_scores = self.attention_scores[:10, :10]
+        pyplot.figure(figsize=(10, 8))
+        sns.heatmap(
+            attention_scores.detach().cpu().numpy(),
+            cmap='viridis', annot=True, fmt='.2f'
+        )
+        pyplot.title('Attention Scores')
+        pyplot.xlabel('Nodes')
+        pyplot.ylabel('Nodes')
+        pyplot.show()
+
+    def visualize_attention_scores(
+            self,
+            names: List[str],
+            rows: List[int],
+            columns: List[int],
+            title: str
+            ) -> None:
+        """
+        Plot selected rows and columns from the most recent attention matrix.
+        List ``names`` must contain one label per graph node.
+
+        :param names: List of graph nodes for attention scores.
+        :param rows: List of row indices to get names for heatmap axes.
+        :param columns: List of column indices to get names for heatmap axes.
+        :param title: Plot title.
+        """
+        if self.attention_scores is None:
+            msg = 'Run forward with return_attention=True before plotting.'
+            raise RuntimeError(msg)
+
+        if len(names) != self.num_nodes:
+            msg = 'names must contain one label for every graph node.'
+            raise ValueError(msg)
+
+        if not rows or not columns:
+            raise ValueError('rows and columns must not be empty.')
+        if (
+            min(rows) < 0 or max(rows) >= self.num_nodes or
+            min(columns) < 0 or max(columns) >= self.num_nodes
+        ):
+            error_msg = 'rows and columns must contain valid node indices.'
+            raise IndexError(error_msg)
+
+        attention_scores = self.attention_scores[rows][:, columns].detach()
+        max_attention = attention_scores.abs().max()
+        if max_attention > 0:
+            attention_scores /= max_attention
+
+        figure_width = max(8, min(20, len(columns) * 0.35))
+        figure_height = max(6, min(20, len(rows) * 0.35))
+        pyplot.figure(figsize=(figure_width, figure_height))
+
+        scores_array = attention_scores.cpu().numpy()
+        x_tick_labels = [names[idx] for idx in columns]
+        y_tick_labels = [names[idx] for idx in rows]
+
+        heatmap = sns.heatmap(
+            scores_array, cmap='OrRd', annot=False,
+            xticklabels=x_tick_labels, yticklabels=y_tick_labels
+            )
+
+        pyplot.title('Attention Scores')
+        heatmap.set_xticklabels(
+            heatmap.get_xticklabels(), rotation=90, fontsize=10
+        )
+
+        fig_path = f'Attention_{title}.pdf'
+        pyplot.savefig(fig_path, format='pdf', bbox_inches='tight')
+        pyplot.show()

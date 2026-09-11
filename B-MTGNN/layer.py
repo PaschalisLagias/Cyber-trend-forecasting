@@ -82,7 +82,7 @@ class mixprop(nn.Module):
 
         ho = torch.cat(out, dim=1)
         ho = self.mlp(ho)
-        return ho
+        return ho, a
 
 
 class dy_mixprop(nn.Module):
