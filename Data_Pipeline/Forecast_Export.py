@@ -25,19 +25,18 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from collections import defaultdict
+from typing import Any, Dict, List
 import sys
-
 
 # --- Path Configuration ---
 from pathlib import Path
+from config.Paths import *
 
 # Ensure Python can find the Config folder
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
-
-from Config.Paths import *    
 
 # Inherit paths directly from Config
 DATA_FILE = BMTGNN_WORKING_TXT 
@@ -54,6 +53,7 @@ B_MTGNN_DIR = PROJECT_ROOT / 'B-MTGNN'
 if str(B_MTGNN_DIR) not in sys.path:
     sys.path.append(str(B_MTGNN_DIR))
     print(f"Injected {B_MTGNN_DIR} into system path so PyTorch can find 'net.py'")
+
 
 def create_columns(legacy_header_path, mapping_csv_path):
     """
@@ -83,6 +83,37 @@ def create_columns(legacy_header_path, mapping_csv_path):
         col_index[c] = i
         
     return col_name, col_index
+
+
+def save_attention_scores(scores: torch.Tensor, names: List[str]) -> None:
+    """
+    Save the torch tensor with attention scores.
+
+    :param scores: Torch tensor with attention scores.
+    :param names: List of node names.
+    """
+    torch.save(
+        {
+            'attention_scores': scores.detach().cpu(),
+            'names': names,
+            'rows': list(range(len(names))),
+            'columns': list(range(len(names))),
+            'title': 'Attention Scores'
+
+        },
+        'attention_scores.pt'
+    )
+
+
+def load_attention_scores(file_path: str) -> Dict[Any]:
+    """
+    Load the torch tensor with attention scores.
+
+    :param file_path: The file path where the tensor is stored.
+    :return: Dictionary with attention scores and tensor metadata.
+    """
+    return torch.load(file_path, map_location='cpu', weights_only=True)
+
 
 def extract_forecast():
     """Executes the Bayesian forecast and exports the NumPy arrays."""
@@ -165,6 +196,11 @@ def extract_forecast():
     # FIX: Use np.sqrt to avoid CPU tensor initialisation crash
     confidence = z * std_dev / np.sqrt(num_runs)
 
+    # Extract attention scores
+    model.eval()
+    _, attention_scores = model(X, return_attention=True)
+    save_attention_scores(attention_scores, col_names)
+
     # 8. Inverse Transform (Scale back to real counts)
     # FIX: Pull GPU tensors to CPU and convert to numpy BEFORE multiplying by the numpy scale array
     dat_unscaled = dat * scale
@@ -191,6 +227,7 @@ def extract_forecast():
     print(f"Saved: {BMTGNN_NAMES.name} Count: {len(names_array)}")
     print("=" * 60)
     print("SUCCESS: Phase 4 complete. Data is ready for final visualisation.")
+
 
 if __name__ == "__main__":
     extract_forecast()
