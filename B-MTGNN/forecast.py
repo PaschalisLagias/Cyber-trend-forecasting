@@ -241,7 +241,7 @@ def plot_forecast(
 
         if torch.mean(f_attack) > torch.mean(f):
             # to highlight the gap
-            cc, cc_conf=get_closest_curve_larger(
+            cc, cc_conf = get_closest_curve_larger(
                 f, forecast, confidence,
                 attack, solutions, col
             )
