@@ -374,11 +374,3 @@ def load_node_feature(path):
     std = np.std(x,axis=0)
     z = torch.tensor((x-mean)/std,dtype=torch.float)
     return z
-
-
-def normal_std(x):
-    return x.std() * np.sqrt((len(x) - 1.) / (len(x)))
-
-
-
-            
