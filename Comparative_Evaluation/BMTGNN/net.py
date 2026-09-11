@@ -55,12 +55,11 @@ class gtnet(nn.Module):
 
         self.seq_length = seq_length
         kernel_size = 7
+
         if dilation_exponential > 1:
             self.receptive_field = int(
-                1
-                + (kernel_size - 1)
-                * (dilation_exponential ** layers - 1)
-                / (dilation_exponential - 1)
+                1 + (kernel_size - 1) *
+                (dilation_exponential**layers - 1) / (dilation_exponential - 1)
             )
 
         else:
@@ -93,16 +92,14 @@ class gtnet(nn.Module):
 
                 self.filter_convs.append(
                     dilated_inception(
-                        residual_channels,
-                        conv_channels,
+                        residual_channels, conv_channels,
                         dilation_factor=new_dilation
                     )
                 )
 
                 self.gate_convs.append(
                     dilated_inception(
-                        residual_channels,
-                        conv_channels,
+                        residual_channels, conv_channels,
                         dilation_factor=new_dilation
                     )
                 )
@@ -110,8 +107,7 @@ class gtnet(nn.Module):
                 self.residual_convs.append(
                     nn.Conv2d(
                         in_channels=conv_channels,
-                        out_channels=residual_channels,
-                        kernel_size=(1, 1)
+                        out_channels=residual_channels, kernel_size=(1, 1)
                     )
                 )
 
@@ -129,7 +125,7 @@ class gtnet(nn.Module):
                             in_channels=conv_channels,
                             out_channels=skip_channels,
                             kernel_size=(
-                            1, self.receptive_field - rf_size_j + 1)
+                                1, self.receptive_field - rf_size_j + 1)
                         )
                     )
 
@@ -205,7 +201,6 @@ class gtnet(nn.Module):
         # )
 
         self.idx = torch.arange(self.num_nodes).to(device)
-        
 
     def forward(self, input_, idx=None):
         seq_len = input_.size(3)
@@ -341,7 +336,6 @@ class gtnet(nn.Module):
         print('saliency in gnet')
         print(saliency)
         return saliency
-
 
     # Explainability
     def explain_by_adjacency(self, node_idx, input_):
