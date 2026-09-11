@@ -352,7 +352,7 @@ class GTNet(nn.Module):
             ) -> None:
         """
         Plot selected rows and columns from the most recent attention matrix.
-        List ``names`` must contain one label per graph node.
+        List `names` must contain one label per graph node.
 
         :param names: List of graph nodes for attention scores.
         :param rows: List of row indices to get names for heatmap axes.
