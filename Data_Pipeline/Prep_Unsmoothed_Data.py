@@ -27,7 +27,7 @@ import numpy as np
 
 # Import unified paths
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from Config.Paths import (
+from config.Paths import (
     ROOT_DIR, V2_2_SARIMAX_CSV, BMTGNN_SM_DATA_G_CSV,
     PROCESSED_BMTGNN_DIR, BMTGNN_WORKING_TXT, BMTGNN_ARCHIVE_DIR,
     PROCESSED_VISION_DIR, VISION_WORKING_CSV, VISION_ARCHIVE_DIR
