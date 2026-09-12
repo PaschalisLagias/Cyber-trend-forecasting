@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Optional, Tuple, Union
+from pathlib import Path
 from matplotlib import pyplot
 import seaborn as sns
 
@@ -333,6 +334,8 @@ class GTNet(nn.Module):
             raise RuntimeError(msg)
 
         attention_scores = self.attention_scores[:10, :10]
+        output_dir = Path(__file__).resolve().parent / 'explainability'
+        output_dir.mkdir(parents=True, exist_ok=True)
         pyplot.figure(figsize=(10, 8))
         sns.heatmap(
             attention_scores.detach().cpu().numpy(),
@@ -341,6 +344,11 @@ class GTNet(nn.Module):
         pyplot.title('Attention Scores')
         pyplot.xlabel('Nodes')
         pyplot.ylabel('Nodes')
+        pyplot.savefig(
+            output_dir / 'Attention_sample.pdf',
+            format='pdf',
+            bbox_inches='tight'
+        )
         pyplot.show()
 
     def visualize_attention_scores(
@@ -348,7 +356,9 @@ class GTNet(nn.Module):
             names: List[str],
             rows: List[int],
             columns: List[int],
-            title: str
+            title: str,
+            x_axis_label: str,
+            y_axis_label: str
             ) -> None:
         """
         Plot selected rows and columns from the most recent attention matrix.
@@ -386,19 +396,30 @@ class GTNet(nn.Module):
         pyplot.figure(figsize=(figure_width, figure_height))
 
         scores_array = attention_scores.cpu().numpy()
-        x_tick_labels = [names[idx] for idx in columns]
-        y_tick_labels = [names[idx] for idx in rows]
+        x_tick_labels = [names[index] for index in columns]
+        y_tick_labels = [names[index] for index in rows]
 
         heatmap = sns.heatmap(
             scores_array, cmap='OrRd', annot=False,
             xticklabels=x_tick_labels, yticklabels=y_tick_labels
             )
 
-        pyplot.title('Attention Scores')
+        pyplot.title(f'Attention Scores: {x_axis_label} - {y_axis_label}')
         heatmap.set_xticklabels(
-            heatmap.get_xticklabels(), rotation=90, fontsize=10
+            heatmap.get_xticklabels(), rotation=90, fontsize=9
+        )
+        heatmap.set_yticklabels(
+            heatmap.get_yticklabels(), rotation=0, fontsize=9
         )
 
+        heatmap.set_xlabel(x_axis_label, labelpad=12)
+        heatmap.set_ylabel(y_axis_label, labelpad=12)
+
+        # Explainability output folder
         fig_path = f'Attention_{title}.pdf'
-        pyplot.savefig(fig_path, format='pdf', bbox_inches='tight')
+        output_dir = Path(__file__).resolve().parent / 'explainability'
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save plot
+        pyplot.savefig(output_dir / fig_path, format='pdf', bbox_inches='tight')
         pyplot.show()
