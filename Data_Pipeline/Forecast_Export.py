@@ -55,6 +55,65 @@ if str(B_MTGNN_DIR) not in sys.path:
     print(f"Injected {B_MTGNN_DIR} into system path so PyTorch can find 'net.py'")
 
 
+def consistent_name(name: str) -> str:
+    """
+    Normalize names of technologies or threats to a consistent format:
+    - Removes suffixes/prefixes such as `-ALL`, `Mentions-`, ` ALL`, 
+    `Solution_`, and `_Mentions`.
+    - Maps any name containing `HIDDEN MARKOV MODEL` to `SHMM`.
+    - Preserves `CAPTCHA`, `DNSSEC`, and `RRAM` unchanged.
+    - Title-cases mixed-case names while keeping short words such as `of` 
+    lowercase.
+    - For uppercase names, converts longer words to title case while 
+    preserving:
+        - Words of three characters or fewer
+        - Words containing `/`
+        - `MITM` and `SIEM`
+
+    :param name: Input name
+    :return: Normalized name
+    """
+    name = name \
+        .replace('-ALL', '') \
+        .replace('Mentions-', '') \
+        .replace(' ALL', '') \
+        .replace('Solution_', '') \
+        .replace('_Mentions', '')
+    
+    # special cases
+    if 'HIDDEN MARKOV MODEL' in name:
+        return 'SHMM'
+
+    if name in {'CAPTCHA', 'DNSSEC', 'RRAM'}:
+        return name
+
+    # e.g., University of london
+    if not name.isupper():
+        words = name.split(' ')
+        result = ''
+
+        for i, word in enumerate(words):
+            if len(word) <= 2:  # e.g., "of"
+                result += word
+            else:
+                result += word[0].upper() + word[1:]
+            
+            if i < len(words) - 1:
+                result += ' '
+        return result
+
+    words = name.split(' ')
+    result = ''
+    for i, word in enumerate(words):
+        if len(word) <= 3 or '/' in word or word in {'MITM', 'SIEM'}:
+            result += word
+        else:
+            result += word[0] + (word[1:].lower())
+        if i < len(words) - 1:
+            result += ' '
+    return result
+
+
 def create_columns(legacy_header_path, mapping_csv_path):
     """
     Constructs ordered column names for Mark 3 dataset by translating
@@ -200,6 +259,9 @@ def extract_forecast():
     model.eval()
     _, attention_scores = model(X, return_attention=True)
     save_attention_scores(attention_scores, col_names)
+
+    # TODO: Add lists of name groups, create, and save the plots.
+    col_names_copy = col_names[:]
 
     # 8. Inverse Transform (Scale back to real counts)
     # FIX: Pull GPU tensors to CPU and convert to numpy BEFORE multiplying by the numpy scale array
