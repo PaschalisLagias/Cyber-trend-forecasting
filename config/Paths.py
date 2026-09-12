@@ -42,6 +42,7 @@ V2_2_SARIMAX_CSV = DATA_PREP_DIR / "Cyber_Trend_Forecasting_All_v2_2_sarimax.csv
 # --- B-MTGNN Directory & Files ---
 BMTGNN_DIR = ROOT_DIR / "B-MTGNN"
 BMTGNN_DATA_DIR = BMTGNN_DIR / "data"
+BMTGNN_EXPLAINABILITY_DIR = BMTGNN_DIR / "explainability"
 
 BMTGNN_DATA_CSV = BMTGNN_DATA_DIR / "data.csv"
 BMTGNN_DATA_TXT = BMTGNN_DATA_DIR / "data.txt"
