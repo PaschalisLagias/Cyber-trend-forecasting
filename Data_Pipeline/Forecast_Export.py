@@ -29,8 +29,12 @@ from typing import Any, Dict, List
 import sys
 
 # --- Path Configuration ---
-from pathlib import Path
-from config.Paths import *
+# from config.Paths import *
+from config.Paths import (
+    BMTGNN_WORKING_TXT, BMTGNN_DIR, ROOT_DIR, BMTGNN_SM_DATA_G_CSV,
+    BMTGNN_PREDICTIONS, BMTGNN_CONFIDENCE, BMTGNN_HISTORY, BMTGNN_NAMES,
+    BMTGNN_EXPLAINABILITY_DIR
+    )
 
 # Ensure Python can find the Config folder
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -151,6 +155,7 @@ def save_attention_scores(scores: torch.Tensor, names: List[str]) -> None:
     :param scores: Torch tensor with attention scores.
     :param names: List of node names.
     """
+    BMTGNN_EXPLAINABILITY_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             'attention_scores': scores.detach().cpu(),
@@ -160,11 +165,11 @@ def save_attention_scores(scores: torch.Tensor, names: List[str]) -> None:
             'title': 'Attention Scores'
 
         },
-        'attention_scores.pt'
+        BMTGNN_EXPLAINABILITY_DIR / 'attention_scores.pt'
     )
 
 
-def load_attention_scores(file_path: str) -> Dict[Any]:
+def load_attention_scores(file_path: str) -> Dict[str, Any]:
     """
     Load the torch tensor with attention scores.
 
@@ -225,7 +230,7 @@ def extract_forecast():
     print(f"Loading model weights from: {MODEL_FILE.relative_to(PROJECT_ROOT)}")
     with open(MODEL_FILE, 'rb') as f:
         # weights_only=False required for legacy .pt files
-        model = torch.load(f, weights_only=False)
+        model = torch.load(f, map_location='cpu')
     
     # FIX: Ensure model is explicitly on the GPU
     model.to(device)
@@ -260,8 +265,33 @@ def extract_forecast():
     _, attention_scores = model(X, return_attention=True)
     save_attention_scores(attention_scores, col_names)
 
-    # TODO: Add lists of name groups, create, and save the plots.
-    col_names_copy = col_names[:]
+    # Clean column names
+    names = col_names[:]
+    names = [consistent_name(c) for c in names]
+
+    # Column name indexes for plotting attention scores
+    attacks = list(range(16))
+    attacks_papers = list(range(16, 26))
+    solutions_papers = list(range(26, 123))
+
+    # Plot attention scores
+    model.visualize_attention_scores(
+        names, attacks, attacks, 'Attacks_Attacks', 'Attacks', 'Attacks'
+    )
+    model.visualize_attention_scores(
+        names, attacks_papers, attacks, 'Attacks_Papers_Attacks',
+        'Attacks', 'Attacks Papers'
+    )
+    model.visualize_attention_scores(
+        names, solutions_papers, attacks, 'PATs_Attacks', 'Attacks', 'PATs'
+    )
+    model.visualize_attention_scores(
+        names, solutions_papers, solutions_papers, 'PATs_PATs', 'PATs', 'PATs'
+    )
+    model.visualize_attention_scores(
+        names, solutions_papers, attacks_papers, 'PATs_Attacks_Papers',
+        'Attacks Papers', 'PATs'
+    )
 
     # 8. Inverse Transform (Scale back to real counts)
     # FIX: Pull GPU tensors to CPU and convert to numpy BEFORE multiplying by the numpy scale array
