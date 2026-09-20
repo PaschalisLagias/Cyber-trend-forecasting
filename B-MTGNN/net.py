@@ -305,9 +305,8 @@ class GTNet(nn.Module):
                     x, adp.transpose(1, 0)
                 )
                 x = x1 + x2
-                self.attention_scores = (
-                    attention_matrix1 + attention_matrix2
-                ) / 2
+                self.attention_scores = \
+                    (attention_matrix1 + attention_matrix2) / 2
             else:
                 x = self.residual_convs[i](x)
 
