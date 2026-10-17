@@ -35,7 +35,11 @@ from config.Paths import (
 
 # Initialise argument parser to accept the raw data file path dynamically
 parser = argparse.ArgumentParser(description='Prepare unsmoothed data for forecasting pipelines.')
-parser.add_argument('--input_file', type=str, required=False, default=None, help='Path to the raw dataset file. Defaults to V2_2_SARIMAX_CSV if omitted.')
+
+parser.add_argument(
+    '--input_file', type=str, required=False, default=None,
+    help='Path to the raw dataset file. Defaults to V2_2_SARIMAX_CSV if omitted.'
+    )
 args = parser.parse_args()
 
 # --- Path Configuration ---
@@ -58,9 +62,9 @@ MAPPING_CSV_PATH = CURRENT_DIR / "column_mapping.csv"
 # Output paths
 OUTPUT_DIR_BMTGNN = PROCESSED_BMTGNN_DIR
 OUTPUT_DIR_VISION = PROCESSED_VISION_DIR
-
 OUTPUT_TXT_PATH = BMTGNN_WORKING_TXT
 OUTPUT_CSV_PATH = VISION_WORKING_CSV
+
 
 # --- SUCCEEDING CODE ---
 def prepare_data():
@@ -80,7 +84,10 @@ def prepare_data():
 
     # 2. Load the legacy headers to establish the STRICT order required
     legacy_df = pd.read_csv(LEGACY_HEADER_PATH, nrows=0)
-    legacy_cols = [c for c in legacy_df.columns if 'date' not in c.lower() and 'month' not in c.lower()]
+    legacy_cols = [
+        c for c in legacy_df.columns 
+        if 'date' not in c.lower() and 'month' not in c.lower()
+        ]
 
     # 3. Load the mapping generated in Phase 0
     mapping_df = pd.read_csv(MAPPING_CSV_PATH)
@@ -110,7 +117,10 @@ def prepare_data():
     # 6. Extract temporal index and slice the dataset
     try:
         # Identify the temporal column to retain for VisionTS++
-        temporal_cols = [c for c in df_new.columns if 'date' in c.lower() or 'month' in c.lower()]
+        temporal_cols = [
+            c for c in df_new.columns
+            if 'date' in c.lower() or 'month' in c.lower()
+            ]
         temporal_col_name = temporal_cols[0] if temporal_cols else df_new.columns[0]
         temporal_series = df_new[temporal_col_name]
 
@@ -191,7 +201,10 @@ def prepare_data():
         try:
             existing_matrix = np.loadtxt(OUTPUT_TXT_PATH, delimiter='\t')
             # Compare shapes and ensure element-wise parity within float tolerances
-            if existing_matrix.shape == new_matrix.shape and np.allclose(existing_matrix, new_matrix, atol=1e-5):
+            if (
+                existing_matrix.shape == new_matrix.shape
+                and np.allclose(existing_matrix, new_matrix, atol=1e-5)
+                ):
                 print("Data matches the current working file exactly. Bypassing overwrite of main file.")
                 data_is_new = False
         except Exception as e:
@@ -221,6 +234,7 @@ def prepare_data():
     except Exception as e:
         print(f"Failed to save exports: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     prepare_data()
